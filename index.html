@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14172b">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="条件に合う数字を全部タップ！30秒・60秒の数字判断ゲーム">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="NUMBER HUNT | 数字ハント">
+  <meta property="og:description" content="条件に合う数字を全部タップ！30秒・60秒の数字判断ゲーム">
+  <title>NUMBER HUNT | 数字ハント</title>
+  <link rel="stylesheet" href="./style.css?v=2.1">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ===== タイトル画面 ===== -->
+    <section id="screen-title" class="screen screen-title">
+      <button id="btn-sound" class="sound-toggle" type="button" aria-pressed="true">
+        SOUND <span id="sound-label">ON</span>
+      </button>
+
+      <div class="title-wrap">
+        <div class="title-tiles" aria-hidden="true">
+          <span>3</span><span class="on">8</span><span>2</span>
+          <span class="on">12</span><span>5</span><span class="on">9</span>
+        </div>
+        <p class="title-en">NUMBER<br>HUNT</p>
+        <h1 class="title-ja">数字ハント</h1>
+        <p class="title-desc">条件に合う数字を全部タップ！</p>
+
+        <div class="mode-select" role="group" aria-label="制限時間">
+          <button class="mode-btn" type="button" data-mode="30" aria-pressed="true"><b>30</b> SEC</button>
+          <button class="mode-btn" type="button" data-mode="60" aria-pressed="false"><b>60</b> SEC</button>
+        </div>
+        <p class="title-best">BEST <span id="title-best">0</span></p>
+
+        <button id="btn-start" class="btn-primary" type="button">START</button>
+        <p class="title-rule">正解 +100 ／ ミスは −50点・−1秒</p>
+      </div>
+      <p id="version" class="version">Ver 2.1</p>
+    </section>
+
+    <!-- ===== ゲーム画面 ===== -->
+    <section id="screen-game" class="screen screen-game" hidden>
+      <header class="hud">
+        <div id="hud-score-box" class="hud-item">
+          <span class="hud-label">SCORE</span>
+          <span id="hud-score" class="hud-value">0</span>
+        </div>
+        <div id="hud-time-box" class="hud-item hud-time">
+          <span class="hud-label">TIME</span>
+          <span id="hud-time" class="hud-value">60</span>
+        </div>
+        <div id="hud-combo-box" class="hud-item">
+          <span class="hud-label">COMBO</span>
+          <span id="hud-combo" class="hud-value">0</span>
+          <span id="hud-multi" class="hud-multi">×1.0</span>
+        </div>
+      </header>
+
+      <div class="question">
+        <span id="level-badge" class="level">LV 1</span>
+        <p id="condition-text" class="condition"></p>
+        <p class="remain">あと <span id="remain">0</span> 個</p>
+        <div id="feedback" class="feedback" aria-live="polite"></div>
+      </div>
+
+      <div id="grid" class="grid" role="group" aria-label="数字"></div>
+    </section>
+
+    <!-- ===== カウントダウン ===== -->
+    <section id="overlay-countdown" class="overlay" hidden>
+      <p id="countdown-num" class="countdown-num">3</p>
+    </section>
+
+    <!-- ===== TIME UP ===== -->
+    <section id="overlay-timeup" class="overlay" hidden>
+      <p class="timeup">TIME UP!</p>
+    </section>
+
+    <!-- ===== 結果画面 ===== -->
+    <section id="overlay-result" class="overlay overlay-result" hidden>
+      <div class="result-card">
+        <div class="result-head">
+          <span class="chip">MODE <b id="r-mode">30 SEC</b></span>
+          <h2 class="result-title">RESULT</h2>
+          <span class="chip">PLAY <b id="r-play">1</b></span>
+        </div>
+        <!-- 1. SCORE / 2. NEW BEST or BESTまで -->
+        <div class="result-score">
+          <span class="result-label">SCORE</span>
+          <span id="r-score" class="result-big">0</span>
+          <div class="result-status">
+            <span id="r-newbest" class="newbest" hidden>NEW BEST!</span>
+            <span id="r-bestgap" class="bestgap"></span>
+          </div>
+        </div>
+
+        <!-- 3. もう一度（最重要） -->
+        <button id="btn-retry" class="btn-primary btn-retry" type="button">もう一度</button>
+
+        <!-- 4. 直近スコア推移 -->
+        <div class="recent">
+          <div class="recent-head">
+            <span>RECENT SCORE <small id="r-recent-mode">30 SEC</small></span>
+            <span id="r-delta" class="delta"></span>
+          </div>
+          <div id="r-recent" class="recent-chart" aria-label="直近スコア"></div>
+        </div>
+
+        <!-- 5. 詳細 -->
+        <dl class="result-stats">
+          <div><dt>BEST</dt><dd id="r-best">0</dd></div>
+          <div><dt>MAX LEVEL</dt><dd id="r-level">1</dd></div>
+          <div><dt>MAX COMBO</dt><dd id="r-maxcombo">0</dd></div>
+          <div><dt>CORRECT</dt><dd id="r-correct">0</dd></div>
+          <div><dt>MISS</dt><dd id="r-miss">0</dd></div>
+          <div><dt>ACCURACY</dt><dd id="r-acc">0%</dd></div>
+        </dl>
+
+        <!-- 6. タイトルへ -->
+        <button id="btn-title" class="btn-text" type="button">タイトルへ</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="rotate-notice">縦画面でプレイしてください</div>
+
+  <script src="./script.js?v=2.1"></script>
+</body>
+</html>
