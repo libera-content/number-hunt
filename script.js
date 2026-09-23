@@ -998,3 +998,712 @@
       el.timeBox.classList.toggle('warn', sec <= CONFIG.TIME_WARN && sec > CONFIG.TIME_DANGER);
       el.timeBox.classList.toggle('danger', sec <= CONFIG.TIME_DANGER);
       return sec;
+    }
+
+    function renderQuestion() {
+      const q = state.question;
+      el.condition.innerHTML = q.text;
+      retrigger(el.condition, 'enter');
+      el.level.textContent = 'LV ' + state.level;
+      el.remain.textContent = q.remaining;
+
+      if (q.special) {
+        el.specialBadge.hidden = false;
+        el.specialBadgeText.textContent = CONFIG.SPECIAL_LABELS[q.special] || q.special;
+        el.gameScreen.classList.add('special-active');
+      } else {
+        el.specialBadge.hidden = true;
+        el.gameScreen.classList.remove('special-active');
+      }
+
+      q.cells.forEach((cell, i) => {
+        const btn = cellButtons[i];
+        btn.className = 'cell';
+        const hideValue = q.special === 'MEMORY' && state.memoryHidden;
+        btn.textContent = hideValue ? '?' : cell.value;
+        btn.setAttribute('aria-label', hideValue ? '?' : String(cell.value));
+        if (cell.bonusTarget) btn.classList.add('bonus');
+        if (state.tutorialActive && cell.correct && i === state.tutorialHintIndex) btn.classList.add('hint');
+      });
+
+      retrigger(el.scanSweep, 'sweep');
+    }
+
+    // MEMORYの数字→「？」切り替え専用（正解/ボーナス等のクラスは保持したまま文字だけ変える）
+    function updateMemoryDisplay() {
+      const q = state.question;
+      if (!q || q.special !== 'MEMORY') return;
+      q.cells.forEach((cell, i) => {
+        if (cell.done) return;
+        const btn = cellButtons[i];
+        const hideValue = state.memoryHidden;
+        btn.textContent = hideValue ? '?' : cell.value;
+        btn.setAttribute('aria-label', hideValue ? '?' : String(cell.value));
+      });
+    }
+
+    function showFeedback(text, type) {
+      el.feedback.textContent = text;
+      el.feedback.className = 'feedback ' + type;
+      retrigger(el.feedback, 'show');
+    }
+
+    function showComboMilestone(text) {
+      el.comboMilestone.textContent = text;
+      retrigger(el.comboMilestone, 'show');
+    }
+
+    function showLevelUp(level) {
+      retrigger(el.level, 'up');
+      const sub = CONFIG.LEVEL_UP_LABELS[level];
+      el.feedback.innerHTML = sub ? `LEVEL ${level}<br><small>${sub}</small>` : 'LEVEL UP!';
+      el.feedback.className = 'feedback level';
+      retrigger(el.feedback, 'show');
+    }
+
+    function spawnScorePop(fromBtn, text, cls) {
+      const layerRect = el.scorePopLayer.getBoundingClientRect();
+      const btnRect = fromBtn.getBoundingClientRect();
+      const pop = document.createElement('span');
+      pop.className = 'score-pop ' + (cls || '');
+      pop.textContent = text;
+      pop.style.left = (btnRect.left - layerRect.left + btnRect.width / 2) + 'px';
+      pop.style.top = (btnRect.top - layerRect.top + btnRect.height / 2) + 'px';
+      el.scorePopLayer.appendChild(pop);
+      later(() => pop.remove(), 560);
+    }
+
+    function showAchievementToast(id) {
+      const def = CONFIG.ACHIEVEMENTS.find((a) => a.id === id);
+      if (!def) return;
+      el.achievementToastText.textContent = `${def.label} — ${def.desc}`;
+      show(el.achievementToast);
+      retrigger(el.achievementToast, 'show');
+      later(() => hide(el.achievementToast), 2200);
+    }
+
+    /* ---------- タイマー ---------- */
+    function startTimer() {
+      if (timers.tickId !== null) clearInterval(timers.tickId);   // 二重起動防止
+      state.endTime = performance.now() + state.duration * 1000;
+      timers.tickId = setInterval(tick, CONFIG.TICK_INTERVAL);
+      tick();
+    }
+
+    function tick() {
+      if (state.phase !== 'playing') return;
+      const left = state.endTime - performance.now();
+      const sec = renderTime(left);
+      if (left <= 0) {
+        endGame();
+        return;
+      }
+      // 残り5秒から1秒ごとに警告音（同じ秒で二度鳴らさない）
+      if (sec <= CONFIG.TIME_DANGER && sec !== state.lastWarnSec) {
+        state.lastWarnSec = sec;
+        sound.warn();
+      }
+
+      // FEVER終了判定
+      if (state.feverActive && performance.now() >= state.feverEndTime) {
+        deactivateFever();
+      } else if (state.feverActive) {
+        renderFever();
+      }
+
+      // SPECIAL(SPEED)のタイムアウト判定
+      if (state.specialActive && state.specialType === 'SPEED' && state.specialEndTime
+          && performance.now() >= state.specialEndTime && state.question && state.question.remaining > 0) {
+        resolveSpecialTimeout();
+      }
+    }
+
+    /* ---------- FEVER ---------- */
+    function maybeActivateFever() {
+      if (!state.feverActive && state.feverGauge >= CONFIG.FEVER_MAX) {
+        state.feverActive = true;
+        state.feverEndTime = performance.now() + CONFIG.FEVER_DURATION * 1000;
+        state.feverCount += 1;
+        sound.fever();
+        vibrate(CONFIG.VIBRATE_FEVER_PATTERN);
+        el.gameScreen.classList.add('fever-active');
+        showFeedback('FEVER!', 'fever');
+      }
+      renderFever();
+    }
+
+    function deactivateFever() {
+      state.feverActive = false;
+      state.feverGauge = 0;
+      el.gameScreen.classList.remove('fever-active');
+      renderFever();
+    }
+
+    /* ---------- SPECIAL ---------- */
+    function scheduleNextSpecial() {
+      state.nextSpecialAt = state.questionsCompleted + randInt(CONFIG.SPECIAL_INTERVAL_MIN, CONFIG.SPECIAL_INTERVAL_MAX, state.rng);
+    }
+
+    function beginSpecialIntro(type) {
+      state.locked = true;
+      state.phase = 'special-intro';
+      el.specialIntroType.textContent = CONFIG.SPECIAL_LABELS[type] || type;
+      show(el.special);
+      retrigger(el.special.firstElementChild, 'pop');
+      sound.specialStart();
+
+      later(() => {
+        hide(el.special);
+        if (type === 'MEMORY') {
+          startMemoryPhase();
+        } else {
+          finishSpecialIntro(type);
+        }
+      }, CONFIG.SPECIAL_INTRO_MS);
+    }
+
+    function startMemoryPhase() {
+      state.memoryHidden = false;
+      updateMemoryDisplay();
+      later(() => {
+        state.memoryHidden = true;
+        updateMemoryDisplay();
+        finishSpecialIntro('MEMORY');
+      }, CONFIG.SPECIAL_MEMORY_SHOW_MS);
+    }
+
+    function finishSpecialIntro(type) {
+      if (state.phase !== 'special-intro' && state.phase !== 'playing') return;
+      state.phase = 'playing';
+      state.locked = false;
+      if (type === 'SPEED') {
+        state.specialEndTime = performance.now() + CONFIG.SPECIAL_SPEED_DURATION * 1000;
+      }
+    }
+
+    function resolveSpecialTimeout() {
+      state.specialEndTime = 0;
+      const q = state.question;
+      q.cells.forEach((cell, i) => {
+        if (cell.correct && !cell.done) {
+          cell.done = true;
+          cellButtons[i].classList.add('done', 'timeout-miss');
+        }
+      });
+      q.remaining = 0;
+      showFeedback('TIME UP', 'bad');
+      state.locked = true;
+      later(() => {
+        state.locked = false;
+        if (state.phase === 'playing') nextQuestion();
+      }, CONFIG.QUESTION_TRANSITION_DELAY);
+    }
+
+    /* ---------- ゲーム進行 ---------- */
+    function startGame(isRetry, opts) {
+      sound.unlock();   // iOS: ユーザー操作内で AudioContext を初期化
+      clearAllTimers();
+
+      const isDaily = !!(opts && opts.daily);
+
+      recordStart(sessionStats, isRetry);
+      if (!isDaily) recordStart(statsByMode[selectedMode], isRetry);
+
+      const firstEverPlay = CONFIG.TUTORIAL_ENABLED && !storage.isTutorialSeen();
+      if (firstEverPlay) storage.setTutorialSeen();
+
+      state = createInitialState();
+      state.phase = 'countdown';
+      state.isRetry = isRetry;
+      state.playNumber = sessionStats.totalPlays;
+      state.tutorialActive = firstEverPlay;
+
+      if (isDaily) {
+        state.dailyMode = true;
+        state.mode = CONFIG.RANK_MODE;
+        state.duration = CONFIG.DAILY_DURATION;
+        state.dailyDateStr = getTodayDateStr();
+        state.rng = getDailyRng(state.dailyDateStr);
+      } else {
+        state.mode = selectedMode;
+        state.duration = getDuration(selectedMode);
+        state.rng = defaultRng;
+      }
+      scheduleNextSpecial();
+
+      el.gameScreen.classList.remove('fever-active', 'special-active');
+
+      hide(el.titleScreen);
+      hide(el.result);
+      hide(el.timeup);
+      hide(el.special);
+      show(el.gameScreen);
+
+      state.question = generateQuestion(state.level, null, state.rng);
+
+      if (state.tutorialActive) {
+        const correctIdx = state.question.cells.map((c, i) => (c.correct ? i : -1)).filter((i) => i >= 0);
+        state.tutorialHintIndex = correctIdx.length ? correctIdx[0] : -1;
+      }
+
+      renderQuestion();
+      renderHud();
+      renderFever();
+      renderTime(state.duration * 1000);
+      el.feedback.className = 'feedback';
+      el.grid.classList.add('veiled');
+
+      if (state.tutorialActive) show(el.tutorialHint);
+      else hide(el.tutorialHint);
+
+      const seconds = isRetry ? CONFIG.RETRY_COUNTDOWN_DURATION : CONFIG.COUNTDOWN_DURATION;
+      runCountdown(getCountdownSteps(seconds), 0);
+    }
+
+    function runCountdown(steps, index) {
+      if (!steps.length) {
+        beginPlay();
+        return;
+      }
+      const isLast = index === steps.length - 1;
+      show(el.countdown);
+      el.countdownNum.textContent = steps[index];
+      el.countdownNum.classList.toggle('go', isLast);
+      retrigger(el.countdownNum, 'beat');
+      sound.countdown(isLast);
+
+      if (isLast) later(beginPlay, CONFIG.COUNTDOWN_GO_MS);
+      else later(() => runCountdown(steps, index + 1), CONFIG.COUNTDOWN_STEP_MS);
+    }
+
+    function beginPlay() {
+      if (state.phase !== 'countdown') return;
+      hide(el.countdown);
+      el.grid.classList.remove('veiled');
+      state.phase = 'playing';
+      startTimer();
+    }
+
+    function nextQuestion() {
+      state.questionsCompleted += 1;
+      hide(el.tutorialHint);
+      state.tutorialActive = false;
+
+      if (state.specialActive) {
+        state.specialActive = false;
+        state.specialType = null;
+        state.specialEndTime = 0;
+        state.memoryHidden = false;
+        scheduleNextSpecial();
+      }
+
+      const newLevel = getLevel(state.correct);
+      const leveledUp = newLevel > state.level;
+      state.level = newLevel;
+      state.maxLevel = Math.max(state.maxLevel, newLevel);
+
+      const shouldTriggerSpecial = state.questionsCompleted >= state.nextSpecialAt;
+
+      if (shouldTriggerSpecial) {
+        const type = pickSpecialType(state.rng);
+        state.question = generateSpecialQuestion(type, state.level, state.question.text, state.rng);
+        state.specialActive = true;
+        state.specialType = type;
+        state.specialAttempts += 1;
+        renderQuestion();
+        beginSpecialIntro(type);
+      } else {
+        state.question = generateQuestion(state.level, state.question.text, state.rng);
+        renderQuestion();
+      }
+
+      if (leveledUp) showLevelUp(newLevel);
+    }
+
+    function handleTap(index) {
+      if (state.phase !== 'playing' || state.locked) return;
+      const q = state.question;
+      const cell = q && q.cells[index];
+      if (!cell || cell.done) return;   // 正解済みは無反応
+      const btn = cellButtons[index];
+
+      if (cell.correct) {
+        // 状態更新 → 見た目 → 音 を同じ処理内で即時に行う
+        cell.done = true;
+        q.remaining -= 1;
+        state.correct += 1;
+        const prevCombo = state.combo;
+        state.combo += 1;
+        state.maxCombo = Math.max(state.maxCombo, state.combo);
+
+        const pts = calcCorrectPoints(state.combo, state.feverActive) + (cell.bonusTarget ? CONFIG.BONUS_TARGET_SCORE : 0);
+        const bonus = calcComboBonus(prevCombo, state.combo);
+
+        let specialBonus = 0;
+        const specialSuccessNow = state.specialActive && q.remaining === 0;
+        if (specialSuccessNow) {
+          specialBonus = CONFIG.SPECIAL_SCORES[state.specialType] || 0;
+          state.specialSuccesses += 1;
+        }
+
+        state.score += pts + bonus + specialBonus;
+
+        // FEVERゲージ
+        let feverGain = CONFIG.FEVER_GAIN_CORRECT + calcFeverComboGain(prevCombo, state.combo);
+        if (specialSuccessNow) feverGain += CONFIG.FEVER_GAIN_SPECIAL;
+        state.feverGauge = clampFever(state.feverGauge + feverGain);
+        maybeActivateFever();
+
+        btn.classList.add('done');
+        btn.classList.remove('hint');
+        if (cell.bonusTarget) btn.classList.add('bonus-hit');
+        retrigger(btn, 'pop');
+        el.remain.textContent = q.remaining;
+        renderHud();
+
+        spawnScorePop(btn, '+' + fmt(pts), specialSuccessNow ? 'special' : (cell.bonusTarget ? 'bonus' : 'good'));
+        vibrate(CONFIG.VIBRATE_CORRECT_MS);
+
+        if (bonus > 0) {
+          state.bonusCount += 1;
+          showFeedback(`COMBO BONUS +${bonus}`, 'bonus');
+          retrigger(el.comboBox, 'milestone');
+          retrigger(el.scoreBox, 'milestone');
+          sound.milestone();
+        } else if (specialSuccessNow) {
+          showFeedback(`SPECIAL CLEAR +${specialBonus}`, 'special');
+          sound.specialSuccess();
+        } else {
+          showFeedback('+' + pts, 'good');
+          sound.correct(state.combo);
+        }
+
+        const milestoneText = getComboMilestoneText(prevCombo, state.combo);
+        if (milestoneText) showComboMilestone(milestoneText);
+
+        if (q.remaining === 0) {
+          state.locked = true;
+          later(() => {
+            state.locked = false;
+            if (state.phase === 'playing') nextQuestion();
+          }, CONFIG.QUESTION_TRANSITION_DELAY);
+        }
+      } else {
+        state.miss += 1;
+        state.combo = 0;
+        state.score = Math.max(0, state.score - CONFIG.MISS_SCORE);
+        state.endTime -= CONFIG.MISS_TIME_PENALTY * 1000;
+        state.feverGauge = clampFever(state.feverGauge - CONFIG.FEVER_LOSS_MISS);
+        renderFever();
+
+        retrigger(btn, 'miss');
+        retrigger(el.timeBox, 'penalty');
+        showFeedback(`-${CONFIG.MISS_SCORE}  TIME -${CONFIG.MISS_TIME_PENALTY}`, 'bad');
+        sound.miss();
+        vibrate(CONFIG.VIBRATE_MS);
+        renderHud();
+        tick();
+      }
+    }
+
+    function endGame() {
+      if (state.phase !== 'playing') return;
+      state.phase = 'ended';
+      clearAllTimers();
+      renderTime(0);
+      sound.end();
+      el.gameScreen.classList.remove('fever-active', 'special-active');
+      hide(el.tutorialHint);
+
+      const rank = (!state.dailyMode && state.mode === CONFIG.RANK_MODE) ? getRank(state.score) : null;
+
+      let isNewBest = false;
+      let prevBest = 0;
+      let dailyBest = 0;
+      let prevRank = null;
+
+      if (state.dailyMode) {
+        prevBest = storage.getDailyBest(state.dailyDateStr);
+        if (state.score > prevBest) {
+          storage.setDailyBest(state.dailyDateStr, state.score);
+        }
+        dailyBest = Math.max(prevBest, state.score);
+      } else {
+        prevBest = bestScores[state.mode];
+        isNewBest = state.score > prevBest;
+        prevRank = state.mode === CONFIG.RANK_MODE ? getRank(prevBest) : null;
+        if (isNewBest) {
+          bestScores[state.mode] = state.score;
+          storage.setBest(state.mode, state.score);
+        }
+      }
+
+      const record = {
+        mode: state.mode,
+        score: state.score,
+        correct: state.correct,
+        miss: state.miss,
+        accuracy: calcAccuracyValue(state.correct, state.miss),
+        maxCombo: state.maxCombo,
+        maxLevel: state.maxLevel,
+        playedAt: new Date().toISOString(),
+        playNumber: state.playNumber,
+        isRetry: state.isRetry,
+        dailyMode: state.dailyMode,
+        feverCount: state.feverCount,
+        specialAttempts: state.specialAttempts,
+        specialSuccesses: state.specialSuccesses,
+        rank: rank,
+      };
+
+      if (!state.dailyMode) {
+        playHistory = addHistory(playHistory, record, CONFIG.HISTORY_LIMIT);
+        recordResult(statsByMode[state.mode], record);
+      }
+      recordResult(sessionStats, record);
+
+      // ミッション判定（3種・日付でリセット）
+      const todayStr = getTodayDateStr();
+      const missionState = storage.loadMissionState(todayStr);
+      const missionResults = evaluateMissions(record);
+      const newlyClearedMissions = [];
+      missionResults.forEach((m) => {
+        if (m.cleared && !missionState[m.id]) {
+          missionState[m.id] = true;
+          newlyClearedMissions.push(m.label);
+        }
+      });
+      storage.saveMissionState(missionState);
+      if (newlyClearedMissions.length) sound.missionClear();
+
+      // 実績判定
+      const newlyUnlocked = evaluateAchievements(record, { rank }, unlockedAchievements);
+      if (newlyUnlocked.length) {
+        unlockedAchievements = unlockedAchievements.concat(newlyUnlocked);
+        storage.setAchievements(unlockedAchievements);
+      }
+
+      const rankUp = !state.dailyMode && isNewBest && prevRank && rank
+        && getRankIndex(rank) > getRankIndex(prevRank);
+
+      show(el.timeup);
+      later(() => showResult(isNewBest, prevBest, {
+        rank, rankUp, dailyBest, missionResults: evaluateMissions(record).map((m) => ({
+          ...m, cleared: missionState[m.id] || m.cleared,
+        })), newlyUnlocked, newlyClearedMissions,
+      }), CONFIG.TIMEUP_DISPLAY_MS);
+    }
+
+    function showResult(isNewBest, prevBest, extra) {
+      state.phase = 'result';
+      hide(el.timeup);
+
+      el.r.mode.textContent = (state.dailyMode ? 'DAILY ' : '') + state.mode + ' SEC';
+      el.r.play.textContent = state.playNumber;
+      el.r.score.textContent = fmt(state.score);
+      el.r.best.textContent = fmt(bestScores[state.mode]);
+      el.r.level.textContent = state.maxLevel;
+      el.r.maxCombo.textContent = state.maxCombo;
+      el.r.correct.textContent = state.correct;
+      el.r.miss.textContent = state.miss;
+      el.r.acc.textContent = formatAccuracy(state.correct, state.miss);
+
+      // NEW BEST の時は「BESTまで」を出さない
+      el.r.newBest.hidden = !isNewBest;
+      el.r.bestGap.hidden = isNewBest;
+      if (isNewBest) {
+        retrigger(el.r.newBest, 'pop-in');
+        el.r.bestGap.textContent = '';
+      } else if (prevBest === 0) {
+        el.r.bestGap.textContent = '';
+      } else if (state.score === prevBest) {
+        el.r.bestGap.textContent = 'BESTタイ！';
+      } else {
+        el.r.bestGap.textContent = `BESTまで あと ${fmt(prevBest - state.score)}`;
+      }
+
+      // RANK（30秒通常モードのみ）
+      if (extra.rank) {
+        el.r.rankRow.hidden = false;
+        setRankBadge(el.r.rank, extra.rank);
+        el.r.rankUp.hidden = !extra.rankUp;
+        if (extra.rankUp) { retrigger(el.r.rankUp, 'pop-in'); later(() => sound.rankUp(), 160); }
+        const gap = getNextRankGap(state.score);
+        el.r.nextRank.hidden = false;
+        el.r.nextRank.textContent = gap === null ? 'MAX RANK到達！' : `NEXT RANK あと ${fmt(gap)}pt`;
+      } else {
+        el.r.rankRow.hidden = true;
+        el.r.nextRank.hidden = true;
+      }
+
+      // DAILY / 通常 の表示切り替え
+      if (state.dailyMode) {
+        el.r.recentBlock.hidden = true;
+        el.r.dailyBestRow.hidden = false;
+        el.r.dailyBest.textContent = fmt(extra.dailyBest);
+      } else {
+        el.r.recentBlock.hidden = false;
+        el.r.dailyBestRow.hidden = true;
+        renderRecent();
+      }
+
+      // MISSION
+      el.r.missions.innerHTML = '';
+      extra.missionResults.forEach((m) => {
+        const li = document.createElement('li');
+        li.className = 'mission-item' + (m.cleared ? ' cleared' : '');
+        li.textContent = (m.cleared ? '✓ ' : '・') + m.label;
+        el.r.missions.appendChild(li);
+      });
+
+      show(el.result);
+      resultShownAt = performance.now();
+      if (isNewBest) later(() => sound.newBest(), 120);
+
+      // 実績トーストを順番に表示（ミッションクリアはサウンド＋一覧のチェックで表現済み）
+      const toastQueue = extra.newlyUnlocked.slice();
+      function drainToasts() {
+        if (!toastQueue.length) return;
+        showAchievementToast(toastQueue.shift());
+        later(drainToasts, 2400);
+      }
+      later(drainToasts, 500);
+    }
+
+    // 直近スコア（同じモードのみ。30秒と60秒は比較できないため／DAILYは含めない）
+    const recentBars = [];
+    function renderRecent() {
+      if (!recentBars.length) {
+        for (let i = 0; i < CONFIG.RECENT_SCORE_COUNT; i++) {
+          const col = document.createElement('div');
+          col.className = 'recent-col';
+          col.innerHTML = '<div class="recent-track"><div class="recent-bar"></div></div><span class="recent-val"></span>';
+          el.r.recent.appendChild(col);
+          recentBars.push({
+            col, bar: col.querySelector('.recent-bar'), val: col.querySelector('.recent-val'),
+          });
+        }
+      }
+      const scores = getRecentScores(playHistory, state.mode, CONFIG.RECENT_SCORE_COUNT);
+      const ratios = calcBarRatios(scores);
+      const offset = CONFIG.RECENT_SCORE_COUNT - scores.length;   // 右詰めで表示
+      recentBars.forEach((b, i) => {
+        const k = i - offset;
+        const has = k >= 0;
+        b.col.classList.toggle('empty', !has);
+        b.col.classList.toggle('latest', has && k === scores.length - 1);
+        b.bar.style.height = has ? Math.max(4, ratios[k] * 100) + '%' : '0';
+        b.val.textContent = has ? fmt(scores[k]) : '';
+      });
+      el.r.recentMode.textContent = state.mode + ' SEC';
+      const prev = scores.length >= 2 ? scores[scores.length - 2] : null;
+      const delta = formatDelta(state.score, prev);
+      el.r.delta.textContent = delta;
+      el.r.delta.className = 'delta' + (delta.startsWith('↑') ? ' up' : delta.startsWith('↓') ? ' down' : '');
+    }
+
+    function goTitle() {
+      clearAllTimers();
+      state = createInitialState();
+      hide(el.result);
+      hide(el.timeup);
+      hide(el.countdown);
+      hide(el.special);
+      hide(el.gameScreen);
+      el.gameScreen.classList.remove('fever-active', 'special-active');
+      renderTitle();
+      show(el.titleScreen);
+    }
+
+    // 結果表示直後の連打で意図せず再開しないようにする
+    const resultReady = () =>
+      state.phase === 'result' && performance.now() - resultShownAt >= CONFIG.RESULT_INPUT_GUARD_MS;
+
+    /* ---------- 初期化 ---------- */
+    // 100dvh 非対応ブラウザ向け：実際の表示高さをCSS変数へ
+    function syncAppHeight() {
+      document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+    }
+
+    function init() {
+      buildGrid();
+      renderTitle();
+      if (el.version) el.version.textContent = 'Ver ' + CONFIG.VERSION;
+      syncAppHeight();
+      window.addEventListener('resize', syncAppHeight);
+      window.addEventListener('orientationchange', syncAppHeight);
+
+      el.modeButtons.forEach((b) => {
+        b.addEventListener('click', () => {
+          if (state.phase !== 'title') return;
+          selectedMode = Number(b.dataset.mode);
+          renderTitle();
+        });
+      });
+
+      el.soundBtn.addEventListener('click', () => {
+        const on = !sound.isEnabled();
+        sound.setEnabled(on);
+        storage.setSoundEnabled(on);
+        renderSoundButton();
+        if (on) sound.countdown(false);   // ONにした合図
+      });
+
+      el.startBtn.addEventListener('click', () => {
+        if (state.phase === 'title') startGame(false);
+      });
+      el.dailyBtn.addEventListener('click', () => {
+        if (state.phase === 'title') startGame(false, { daily: true });
+      });
+      el.retryBtn.addEventListener('click', () => {
+        if (resultReady()) startGame(true, state.dailyMode ? { daily: true } : null);
+      });
+      el.titleBtn.addEventListener('click', () => {
+        if (resultReady()) goTitle();
+      });
+
+      document.addEventListener('gesturestart', (e) => e.preventDefault());
+    }
+
+    // 検証・将来のAnalytics用（読み取り専用のコピーを返す）
+    const inspect = {
+      getSessionStats: () => {
+        const byMode = {};
+        MODES.forEach((m) => { byMode[m] = summarizeAggregate(statsByMode[m]); });
+        return { ...summarizeAggregate(sessionStats), byMode, version: CONFIG.VERSION };
+      },
+      getPlayHistory: () => playHistory.map((h) => ({ ...h })),
+      getAchievements: () => unlockedAchievements.slice(),
+    };
+
+    return { init, inspect };
+  }
+
+  /* ---------------------------------------------------------
+     起動 / テスト用エクスポート
+     --------------------------------------------------------- */
+  const api = {
+    CONFIG, generateQuestion, getLevel, getMultiplier, calcCorrectPoints,
+    calcComboBonus, calcAccuracyValue, formatAccuracy, getCountdownSteps, addHistory, getDuration,
+    getRecentScores, calcBarRatios, formatDelta,
+    createAggregate, recordStart, recordResult, summarizeAggregate,
+    // Ver.3
+    clampFever, calcFeverComboGain, getComboMilestoneText,
+    getRank, getRankIndex, getNextRankGap,
+    evaluateMissions, evaluateAchievements,
+    generateOneTargetQuestion, generateSpeedQuestion, generateMemoryQuestion, generateReverseQuestion,
+    generateSpecialQuestion, pickSpecialType, maybeTagBonusTarget,
+    mulberry32, hashSeed, getTodayDateStr, getDailyRng,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+
+  if (typeof document !== 'undefined') {
+    const boot = () => {
+      const game = createGame();
+      game.init();
+      window.NumberHunt = game.inspect;
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+    else boot();
+  }
+})();
