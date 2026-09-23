@@ -1,6 +1,10 @@
 /* =========================================================
-   NUMBER HUNT Ver.2.1 - script.js
+   NUMBER HUNT Ver.3.0 - script.js
    Vanilla JS / 外部ライブラリなし
+   Ver.2.1 の CONFIG構造・問題生成・タイマー・localStorage・
+   Web Audio・sessionStats・playHistory・UI構造をベースに、
+   FEVER / SPECIAL CHALLENGE / BONUS TARGET / DAILY CHALLENGE /
+   RANK / MISSION / 実績 / 演出強化を追加。
    ========================================================= */
 (function () {
   'use strict';
@@ -9,7 +13,7 @@
      設定（数値はすべてここで管理）
      --------------------------------------------------------- */
   const CONFIG = Object.freeze({
-    VERSION: '2.1',   // index.html の ?v= と揃える
+    VERSION: '3.0',   // index.html の ?v= と揃える
 
     // モード（キー＝モードID、値＝制限秒数）
     GAME_DURATIONS: Object.freeze({ 30: 30, 60: 60 }),
@@ -46,12 +50,19 @@
     SOUND_ENABLED_DEFAULT: true,
     HISTORY_LIMIT: 10,
     RECENT_SCORE_COUNT: 5,         // 結果画面の直近スコア本数
-    VIBRATE_MS: 40,
+    VIBRATE_MS: 40,                // ミス
+    VIBRATE_CORRECT_MS: 10,        // 正解
+    VIBRATE_FEVER_PATTERN: [15, 40, 15],
 
     STORAGE_KEYS: Object.freeze({
-      BEST_PREFIX: 'numberHuntBestScore',   // + モードID（例: numberHuntBestScore30）
-      LEGACY_BEST: 'numberHuntBestScore',   // MVP版（60秒）のキー
+      BEST_PREFIX: 'numberHuntBestScore',        // + モードID（例: numberHuntBestScore30）
+      LEGACY_BEST: 'numberHuntBestScore',         // MVP版（60秒）のキー
       SOUND: 'numberHuntSoundEnabled',
+      DAILY_BEST_PREFIX: 'numberHuntDailyBest_',  // + YYYY-MM-DD
+      TUTORIAL_SEEN: 'numberHuntTutorialSeen',
+      ACHIEVEMENTS: 'numberHuntAchievements',
+      MISSION_STATE: 'numberHuntMissionState',
+      MISSION_DATE: 'numberHuntMissionDate',
     }),
 
     SOUND: Object.freeze({
@@ -73,6 +84,8 @@
       { level: 3, minCorrect: 20, numMax: 30 },
       { level: 4, minCorrect: 35, numMax: 30 },
     ],
+    // LEVEL UP演出：何が追加されたか一瞬で分かる表示
+    LEVEL_UP_LABELS: { 2: 'EVEN / ODD', 3: 'MULTIPLES', 4: 'COMBINATION' },
 
     COMBO_MULTIPLIERS: [
       { minCombo: 20, rate: 2.5 },
@@ -81,38 +94,116 @@
       { minCombo: 5,  rate: 1.2 },
       { minCombo: 0,  rate: 1.0 },
     ],
+
+    /* ---------- Ver.3 追加設定 ---------- */
+    FEVER_MAX: 100,
+    FEVER_GAIN_CORRECT: 4,
+    FEVER_GAIN_COMBO5: 5,
+    FEVER_GAIN_COMBO10: 10,
+    FEVER_GAIN_SPECIAL: 20,
+    FEVER_LOSS_MISS: 10,
+    FEVER_DURATION: 5,             // 秒
+    FEVER_SCORE_MULTIPLIER: 2,
+
+    SPECIAL_TYPES: ['ONE_TARGET', 'SPEED', 'MEMORY', 'REVERSE'],
+    SPECIAL_LABELS: { ONE_TARGET: 'ONE TARGET', SPEED: 'SPEED', MEMORY: 'MEMORY', REVERSE: 'REVERSE' },
+    SPECIAL_SCORES: { ONE_TARGET: 500, SPEED: 500, MEMORY: 700, REVERSE: 600 },
+    SPECIAL_INTERVAL_MIN: 8,
+    SPECIAL_INTERVAL_MAX: 12,
+    SPECIAL_INTRO_MS: 420,
+    SPECIAL_SPEED_DURATION: 3,     // 秒（本体タイマーとは別管理）
+    SPECIAL_MEMORY_SHOW_MS: 1000,
+    SPECIAL_MEMORY_MAX_CORRECT: 3,
+
+    BONUS_TARGET_RATE: 0.12,
+    BONUS_TARGET_SCORE: 200,
+
+    RANK_THRESHOLDS: [
+      { rank: 'BRONZE',   min: 0 },
+      { rank: 'SILVER',   min: 2000 },
+      { rank: 'GOLD',     min: 4000 },
+      { rank: 'PLATINUM', min: 6000 },
+      { rank: 'DIAMOND',  min: 8000 },
+      { rank: 'MASTER',   min: 10000 },
+    ],
+    RANK_MODE: 30,                 // ランクは30秒通常モードのみ対象
+
+    DAILY_DURATION: 30,
+    TUTORIAL_ENABLED: true,
+
+    MISSIONS: [
+      { id: 'combo10', label: '10 COMBO', check: (r) => r.maxCombo >= 10 },
+      { id: 'noMiss',  label: 'NO MISS',  check: (r) => r.miss === 0 && r.correct > 0 },
+      { id: 'level4',  label: 'LEVEL 4',  check: (r) => r.maxLevel >= 4 },
+    ],
+
+    ACHIEVEMENTS: [
+      { id: 'FIRST_HUNT', label: 'FIRST HUNT', desc: '初プレイ' },
+      { id: 'COMBO_20',   label: 'COMBO 20',   desc: '20コンボ' },
+      { id: 'NO_MISS',    label: 'NO MISS',    desc: 'ノーミス完走' },
+      { id: 'MASTER',     label: 'MASTER',     desc: 'MASTERランク' },
+    ],
   });
 
   const MODES = Object.keys(CONFIG.GAME_DURATIONS).map(Number);
 
   /* ---------------------------------------------------------
-     ユーティリティ
+     ユーティリティ（rng を渡すとDAILY等で決定的に生成できる）
      --------------------------------------------------------- */
-  const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const defaultRng = () => Math.random();
+  const randInt = (min, max, rng) => Math.floor((rng || defaultRng)() * (max - min + 1)) + min;
 
-  function shuffle(arr) {
+  function shuffle(arr, rng) {
+    const r = rng || defaultRng;
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(r() * (i + 1));
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
   }
-  const sample = (arr, n) => shuffle(arr).slice(0, n);
+  const sample = (arr, n, rng) => shuffle(arr, rng).slice(0, n);
   const range = (min, max) => Array.from({ length: max - min + 1 }, (_, i) => min + i);
   const fmt = (n) => Number(n).toLocaleString('en-US');
+
+  // 決定的PRNG（DAILY CHALLENGE用）。同じseedなら常に同じ数列を返す。
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hashSeed(str) {
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return h >>> 0;
+  }
+  function getTodayDateStr(d) {
+    d = d || new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function getDailyRng(dateStr) {
+    return mulberry32(hashSeed('numberhunt-daily-' + dateStr));
+  }
 
   /* ---------------------------------------------------------
      問題条件の定義（新モードはここに追加する想定）
      --------------------------------------------------------- */
   const CONDITIONS = {
     1: [
-      ({ min, max }) => {
-        const t = randInt(min + 3, max - 5);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 3, max - 5, rng);
         return { text: `<b>${t}</b>より大きい数字`, test: (n) => n > t };
       },
-      ({ min, max }) => {
-        const t = randInt(min + 5, max - 3);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 5, max - 3, rng);
         return { text: `<b>${t}</b>より小さい数字`, test: (n) => n < t };
       },
     ],
@@ -125,20 +216,20 @@
       test: (n) => n % k === 0,
     })),
     4: [
-      ({ min, max }) => {
-        const t = randInt(min + 3, max - 8);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 3, max - 8, rng);
         return { text: `<b>奇数</b>かつ<b>${t}以上</b>`, test: (n) => n % 2 === 1 && n >= t };
       },
-      ({ min, max }) => {
-        const t = randInt(min + 8, max - 3);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 8, max - 3, rng);
         return { text: `<b>偶数</b>かつ<b>${t}以下</b>`, test: (n) => n % 2 === 0 && n <= t };
       },
-      ({ min, max }) => {
-        const t = randInt(min + 8, max - 3);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 8, max - 3, rng);
         return { text: `<b>奇数</b>かつ<b>${t}以下</b>`, test: (n) => n % 2 === 1 && n <= t };
       },
-      ({ min, max }) => {
-        const t = randInt(min + 3, max - 8);
+      ({ min, max }, rng) => {
+        const t = randInt(min + 3, max - 8, rng);
         return { text: `<b>偶数</b>かつ<b>${t}以上</b>`, test: (n) => n % 2 === 0 && n >= t };
       },
     ],
@@ -166,8 +257,10 @@
     return 1;
   }
 
-  function calcCorrectPoints(combo) {
-    return Math.round(CONFIG.CORRECT_SCORE * getMultiplier(combo));
+  function calcCorrectPoints(combo, feverActive) {
+    let pts = CONFIG.CORRECT_SCORE * getMultiplier(combo);
+    if (feverActive) pts *= CONFIG.FEVER_SCORE_MULTIPLIER;
+    return Math.round(pts);
   }
 
   // prev→next のコンボ増加で「新たに到達した10の倍数」の数だけボーナス
@@ -225,12 +318,72 @@
     return '±0';
   }
 
+  /* ---------- Ver.3: FEVER ---------- */
+  function clampFever(v) {
+    return Math.max(0, Math.min(CONFIG.FEVER_MAX, v));
+  }
+  // combo が 5 / 10 にちょうど到達した瞬間だけ加算（1ずつしか増えないため二重加算なし）
+  function calcFeverComboGain(prevCombo, nextCombo) {
+    let gain = 0;
+    if (prevCombo < 5 && nextCombo >= 5) gain += CONFIG.FEVER_GAIN_COMBO5;
+    if (prevCombo < 10 && nextCombo >= 10) gain += CONFIG.FEVER_GAIN_COMBO10;
+    return gain;
+  }
+
+  /* ---------- Ver.3: コンボ節目テキスト（演出専用・加点はしない） ---------- */
+  function getComboMilestoneText(prevCombo, nextCombo) {
+    const marks = [
+      { at: 30, text: '30 COMBO!!!' },
+      { at: 20, text: '20 COMBO!!' },
+      { at: 10, text: '10 COMBO!' },
+      { at: 5,  text: '5 COMBO' },
+    ];
+    for (const m of marks) if (prevCombo < m.at && nextCombo >= m.at) return m.text;
+    return null;
+  }
+
+  /* ---------- Ver.3: ランク ---------- */
+  function getRank(score, thresholds) {
+    thresholds = thresholds || CONFIG.RANK_THRESHOLDS;
+    let r = thresholds[0];
+    for (const t of thresholds) if (score >= t.min) r = t;
+    return r.rank;
+  }
+  function getRankIndex(rank, thresholds) {
+    thresholds = thresholds || CONFIG.RANK_THRESHOLDS;
+    return thresholds.findIndex((t) => t.rank === rank);
+  }
+  // 次のランクまでの必要点。最上位ランクなら null
+  function getNextRankGap(score, thresholds) {
+    thresholds = thresholds || CONFIG.RANK_THRESHOLDS;
+    const next = thresholds.find((t) => t.min > score);
+    return next ? next.min - score : null;
+  }
+
+  /* ---------- Ver.3: ミッション / 実績（純粋判定関数） ---------- */
+  function evaluateMissions(record, missions) {
+    return (missions || CONFIG.MISSIONS).map((m) => ({
+      id: m.id, label: m.label, cleared: !!m.check(record),
+    }));
+  }
+  function evaluateAchievements(record, ctx, unlocked) {
+    const has = (id) => unlocked.indexOf(id) !== -1;
+    const newly = [];
+    if (!has('FIRST_HUNT')) newly.push('FIRST_HUNT');
+    if (!has('COMBO_20') && record.maxCombo >= 20) newly.push('COMBO_20');
+    if (!has('NO_MISS') && record.miss === 0 && record.correct > 0) newly.push('NO_MISS');
+    if (!has('MASTER') && ctx && ctx.rank === 'MASTER') newly.push('MASTER');
+    return newly;
+  }
+
   /* ---------- セッション集計（セッション全体の累積値） ---------- */
   function createAggregate() {
     return {
       totalPlays: 0, retries: 0, titleStarts: 0, completedPlays: 0,
       totalScore: 0, totalCorrect: 0, totalMiss: 0,
       totalAccuracySum: 0, totalMaxComboSum: 0, totalMaxLevelSum: 0,
+      feverCount: 0, specialAttempts: 0, specialSuccesses: 0, dailyPlays: 0,
+      rankDistribution: {},
     };
   }
 
@@ -248,6 +401,11 @@
     agg.totalAccuracySum += r.accuracy;
     agg.totalMaxComboSum += r.maxCombo;
     agg.totalMaxLevelSum += r.maxLevel;
+    agg.feverCount += r.feverCount || 0;
+    agg.specialAttempts += r.specialAttempts || 0;
+    agg.specialSuccesses += r.specialSuccesses || 0;
+    if (r.dailyMode) agg.dailyPlays += 1;
+    if (r.rank) agg.rankDistribution[r.rank] = (agg.rankDistribution[r.rank] || 0) + 1;
   }
 
   function summarizeAggregate(agg) {
@@ -262,6 +420,8 @@
       overallAccuracy: calcAccuracyValue(agg.totalCorrect, agg.totalMiss), // 全タップ合算
       averageMaxCombo: avg(agg.totalMaxComboSum),
       averageMaxLevel: avg(agg.totalMaxLevelSum),
+      specialSuccessRate: agg.specialAttempts
+        ? Math.round((agg.specialSuccesses / agg.specialAttempts) * 1000) / 1000 : 0,
     };
   }
 
@@ -269,29 +429,41 @@
      問題生成
      正解数kを先に決めて正解候補からk個・不正解候補から9-k個を選ぶ
      --------------------------------------------------------- */
-  function pickCondition(level, numRange) {
+  function pickCondition(level, numRange, rng) {
     let tier = level;
-    if (level > 1 && Math.random() < CONFIG.LOWER_LEVEL_MIX_RATE) tier = randInt(1, level - 1);
+    if (level > 1 && (rng || defaultRng)() < CONFIG.LOWER_LEVEL_MIX_RATE) tier = randInt(1, level - 1, rng);
     const builders = CONDITIONS[tier];
-    return builders[randInt(0, builders.length - 1)](numRange);
+    return builders[randInt(0, builders.length - 1, rng)](numRange, rng);
   }
 
-  function buildQuestion(cond, hits, misses) {
-    const cells = shuffle(hits.concat(misses)).map((value) => ({
+  function buildQuestion(cond, hits, misses, rng) {
+    const cells = shuffle(hits.concat(misses), rng).map((value) => ({
       value,
       correct: cond.test(value),
       done: false,
     }));
-    return { text: cond.text, cells, remaining: cells.filter((c) => c.correct).length };
+    return { text: cond.text, cells, remaining: cells.filter((c) => c.correct).length, special: null };
   }
 
-  function generateQuestion(level, prevText) {
+  // 通常問題の一定確率で正解セルの1つを BONUS TARGET（★）にする（不正解セルには絶対に付けない）
+  function maybeTagBonusTarget(question, rng) {
+    const r = rng || defaultRng;
+    if (r() < CONFIG.BONUS_TARGET_RATE) {
+      const correctIdx = question.cells.map((c, i) => (c.correct ? i : -1)).filter((i) => i >= 0);
+      if (correctIdx.length) {
+        question.cells[correctIdx[randInt(0, correctIdx.length - 1, rng)]].bonusTarget = true;
+      }
+    }
+    return question;
+  }
+
+  function generateQuestion(level, prevText, rng) {
     const numRange = { min: CONFIG.NUM_MIN, max: getLevelConfig(level).numMax };
     const pool = range(numRange.min, numRange.max);
     const size = CONFIG.GRID_SIZE;
 
     for (let i = 0; i < CONFIG.MAX_GENERATE_ATTEMPTS; i++) {
-      const cond = pickCondition(level, numRange);
+      const cond = pickCondition(level, numRange, rng);
       if (cond.text === prevText) continue;
 
       const hitPool = pool.filter(cond.test);
@@ -299,19 +471,142 @@
       const maxK = Math.min(CONFIG.MAX_CORRECT, hitPool.length, size - 1);
       if (maxK < CONFIG.MIN_CORRECT) continue;
 
-      const k = randInt(CONFIG.MIN_CORRECT, maxK);
+      const k = randInt(CONFIG.MIN_CORRECT, maxK, rng);
       if (missPool.length < size - k) continue;
 
-      return buildQuestion(cond, sample(hitPool, k), sample(missPool, size - k));
+      return maybeTagBonusTarget(
+        buildQuestion(cond, sample(hitPool, k, rng), sample(missPool, size - k, rng), rng), rng
+      );
     }
 
     const t = Math.floor((numRange.min + numRange.max) / 2);
     const cond = { text: `<b>${t}</b>より大きい数字`, test: (n) => n > t };
-    return buildQuestion(
-      cond,
-      sample(pool.filter(cond.test), 3),
-      sample(pool.filter((n) => !cond.test(n)), size - 3)
+    return maybeTagBonusTarget(
+      buildQuestion(
+        cond,
+        sample(pool.filter(cond.test), 3, rng),
+        sample(pool.filter((n) => !cond.test(n)), size - 3, rng),
+        rng
+      ), rng
     );
+  }
+
+  /* ---------------------------------------------------------
+     Ver.3: SPECIAL CHALLENGE 問題生成
+     --------------------------------------------------------- */
+  function pickSpecialType(rng) {
+    const types = CONFIG.SPECIAL_TYPES;
+    return types[randInt(0, types.length - 1, rng)];
+  }
+
+  // ONE TARGET: 9個の中から1つだけ選ぶ（最大 / 最小）
+  function generateOneTargetQuestion(level, prevText, rng) {
+    const numRange = { min: CONFIG.NUM_MIN, max: getLevelConfig(level).numMax };
+    const pool = range(numRange.min, numRange.max);
+    const variants = [
+      { text: 'この中で<b>最大</b>の数字', pick: (vals) => Math.max(...vals) },
+      { text: 'この中で<b>最小</b>の数字', pick: (vals) => Math.min(...vals) },
+    ];
+    for (let i = 0; i < CONFIG.MAX_GENERATE_ATTEMPTS; i++) {
+      const values = sample(pool, CONFIG.GRID_SIZE, rng);
+      const v = variants[randInt(0, variants.length - 1, rng)];
+      if (v.text === prevText) continue;
+      const target = v.pick(values);
+      // 最大/最小が重複していると1つに絞れないため作り直す
+      if (values.filter((x) => x === target).length !== 1) continue;
+      const cells = shuffle(values, rng).map((value) => ({ value, correct: value === target, done: false }));
+      return { text: v.text, cells, remaining: 1, special: 'ONE_TARGET' };
+    }
+    // フォールバック：重複のない値になるまでユニーク抽選
+    const uniquePool = shuffle(pool, rng);
+    const values = uniquePool.slice(0, CONFIG.GRID_SIZE);
+    const target = Math.max(...values);
+    const cells = shuffle(values, rng).map((value) => ({ value, correct: value === target, done: false }));
+    return { text: 'この中で<b>最大</b>の数字', cells, remaining: 1, special: 'ONE_TARGET' };
+  }
+
+  // SPEED: 通常と同じ複数正解問題。制限時間3秒は本体タイマーとは別管理。
+  function generateSpeedQuestion(level, prevText, rng) {
+    const numRange = { min: CONFIG.NUM_MIN, max: getLevelConfig(level).numMax };
+    const pool = range(numRange.min, numRange.max);
+    const size = CONFIG.GRID_SIZE;
+    for (let i = 0; i < CONFIG.MAX_GENERATE_ATTEMPTS; i++) {
+      const cond = pickCondition(level, numRange, rng);
+      if (cond.text === prevText) continue;
+      const hitPool = pool.filter(cond.test);
+      const missPool = pool.filter((n) => !cond.test(n));
+      const maxK = Math.min(CONFIG.MAX_CORRECT, hitPool.length, size - 1);
+      if (maxK < CONFIG.MIN_CORRECT) continue;
+      const k = randInt(CONFIG.MIN_CORRECT, maxK, rng);
+      if (missPool.length < size - k) continue;
+      const q = buildQuestion(cond, sample(hitPool, k, rng), sample(missPool, size - k, rng), rng);
+      q.special = 'SPEED';
+      return q;
+    }
+    const q = generateQuestion(level, prevText, rng);
+    q.special = 'SPEED';
+    q.cells.forEach((c) => { delete c.bonusTarget; });
+    return q;
+  }
+
+  // MEMORY: 1秒だけ数字を見せ、あとは位置だけを頼りにタップする。正解数を絞ってフェアにする。
+  function generateMemoryQuestion(level, prevText, rng) {
+    const numRange = { min: CONFIG.NUM_MIN, max: getLevelConfig(level).numMax };
+    const pool = range(numRange.min, numRange.max);
+    const size = CONFIG.GRID_SIZE;
+    const memLevel = Math.min(level, 2); // MEMORYは条件を単純寄りにして理不尽さを防ぐ
+    for (let i = 0; i < CONFIG.MAX_GENERATE_ATTEMPTS; i++) {
+      const cond = pickCondition(memLevel, numRange, rng);
+      if (cond.text === prevText) continue;
+      const hitPool = pool.filter(cond.test);
+      const missPool = pool.filter((n) => !cond.test(n));
+      const maxK = Math.min(CONFIG.SPECIAL_MEMORY_MAX_CORRECT, hitPool.length, size - 1);
+      if (maxK < 1) continue;
+      const k = randInt(1, maxK, rng);
+      if (missPool.length < size - k) continue;
+      const q = buildQuestion(cond, sample(hitPool, k, rng), sample(missPool, size - k, rng), rng);
+      q.special = 'MEMORY';
+      return q;
+    }
+    const q = generateQuestion(level, prevText, rng);
+    q.special = 'MEMORY';
+    q.cells.forEach((c) => { delete c.bonusTarget; });
+    return q;
+  }
+
+  // REVERSE: 通常条件を反転し「条件に合わない数字」を全部タップさせる
+  function generateReverseQuestion(level, prevText, rng) {
+    const numRange = { min: CONFIG.NUM_MIN, max: getLevelConfig(level).numMax };
+    const pool = range(numRange.min, numRange.max);
+    const size = CONFIG.GRID_SIZE;
+    for (let i = 0; i < CONFIG.MAX_GENERATE_ATTEMPTS; i++) {
+      const cond = pickCondition(level, numRange, rng);
+      if (cond.text === prevText) continue;
+      const invertedTest = (n) => !cond.test(n);
+      const hitPool = pool.filter(invertedTest);
+      const missPool = pool.filter(cond.test);
+      const maxK = Math.min(CONFIG.MAX_CORRECT, hitPool.length, size - 1);
+      if (maxK < CONFIG.MIN_CORRECT) continue;
+      const k = randInt(CONFIG.MIN_CORRECT, maxK, rng);
+      if (missPool.length < size - k) continue;
+      const q = buildQuestion({ text: cond.text, test: invertedTest }, sample(hitPool, k, rng), sample(missPool, size - k, rng), rng);
+      q.special = 'REVERSE';
+      q.baseText = cond.text;
+      return q;
+    }
+    const base = generateQuestion(level, prevText, rng);
+    const invertedCells = base.cells.map((c) => ({ value: c.value, correct: !c.correct, done: false }));
+    return { text: base.text, cells: invertedCells, remaining: invertedCells.filter((c) => c.correct).length, special: 'REVERSE', baseText: base.text };
+  }
+
+  function generateSpecialQuestion(type, level, prevText, rng) {
+    switch (type) {
+      case 'ONE_TARGET': return generateOneTargetQuestion(level, prevText, rng);
+      case 'SPEED': return generateSpeedQuestion(level, prevText, rng);
+      case 'MEMORY': return generateMemoryQuestion(level, prevText, rng);
+      case 'REVERSE': return generateReverseQuestion(level, prevText, rng);
+      default: return generateQuestion(level, prevText, rng);
+    }
   }
 
   /* ---------------------------------------------------------
@@ -338,6 +633,13 @@
     setBest(mode, v) {
       this.set(CONFIG.STORAGE_KEYS.BEST_PREFIX + mode, v);
     },
+    getDailyBest(dateStr) {
+      const v = parseInt(this.get(CONFIG.STORAGE_KEYS.DAILY_BEST_PREFIX + dateStr), 10);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    },
+    setDailyBest(dateStr, v) {
+      this.set(CONFIG.STORAGE_KEYS.DAILY_BEST_PREFIX + dateStr, v);
+    },
     getSoundEnabled() {
       const v = this.get(CONFIG.STORAGE_KEYS.SOUND);
       if (v === null) return CONFIG.SOUND_ENABLED_DEFAULT;
@@ -345,6 +647,35 @@
     },
     setSoundEnabled(on) {
       this.set(CONFIG.STORAGE_KEYS.SOUND, on ? '1' : '0');
+    },
+    isTutorialSeen() {
+      return this.get(CONFIG.STORAGE_KEYS.TUTORIAL_SEEN) === '1';
+    },
+    setTutorialSeen() {
+      this.set(CONFIG.STORAGE_KEYS.TUTORIAL_SEEN, '1');
+    },
+    getAchievements() {
+      try { return JSON.parse(this.get(CONFIG.STORAGE_KEYS.ACHIEVEMENTS)) || []; } catch (e) { return []; }
+    },
+    setAchievements(list) {
+      this.set(CONFIG.STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(list));
+    },
+    loadMissionState(todayStr) {
+      const savedDate = this.get(CONFIG.STORAGE_KEYS.MISSION_DATE);
+      if (savedDate !== todayStr) {
+        const fresh = {};
+        CONFIG.MISSIONS.forEach((m) => { fresh[m.id] = false; });
+        this.set(CONFIG.STORAGE_KEYS.MISSION_DATE, todayStr);
+        this.set(CONFIG.STORAGE_KEYS.MISSION_STATE, JSON.stringify(fresh));
+        return fresh;
+      }
+      try {
+        const parsed = JSON.parse(this.get(CONFIG.STORAGE_KEYS.MISSION_STATE));
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch (e) { return {}; }
+    },
+    saveMissionState(ms) {
+      this.set(CONFIG.STORAGE_KEYS.MISSION_STATE, JSON.stringify(ms));
     },
     // MVP版の BEST（60秒）を 60秒モードへ引き継ぐ
     migrateLegacyBest() {
@@ -355,8 +686,8 @@
     },
   };
 
-  function vibrate(ms) {
-    try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* 未対応は無視 */ }
+  function vibrate(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* 未対応は無視 */ }
   }
 
   /* ---------------------------------------------------------
@@ -440,6 +771,11 @@
         tone(523, 0.3, { delay: 0.13, vol: 0.45 });
       },
       newBest() { arpeggio(784, [0, 4, 7, 12, 16], 0.07, 0.16, 0.4); },
+      fever() { arpeggio(660, [0, 3, 7, 10, 12, 15], 0.045, 0.16, 0.4); },
+      specialStart() { tone(1046, 0.1, { type: 'square', vol: 0.3 }); tone(1568, 0.12, { delay: 0.09, type: 'square', vol: 0.3 }); },
+      specialSuccess() { arpeggio(880, [0, 5, 9, 12], 0.06, 0.14, 0.45); },
+      rankUp() { arpeggio(523, [0, 4, 7, 12, 16, 19], 0.08, 0.2, 0.45); },
+      missionClear() { arpeggio(988, [0, 5, 9], 0.07, 0.14, 0.4); },
     };
   }
 
@@ -453,9 +789,13 @@
       gameScreen: $('screen-game'),
       countdown: $('overlay-countdown'),
       countdownNum: $('countdown-num'),
+      special: $('overlay-special'),
+      specialIntroType: $('special-intro-type'),
       timeup: $('overlay-timeup'),
       result: $('overlay-result'),
       titleBest: $('title-best'),
+      titleRank: $('title-rank'),
+      titleDailyBest: $('title-daily-best'),
       modeButtons: Array.from(document.querySelectorAll('.mode-btn')),
       soundBtn: $('btn-sound'),
       soundLabel: $('sound-label'),
@@ -467,19 +807,35 @@
       comboBox: $('hud-combo-box'),
       multi: $('hud-multi'),
       level: $('level-badge'),
+      specialBadge: $('special-badge'),
+      specialBadgeText: $('special-badge-text'),
       condition: $('condition-text'),
       remain: $('remain'),
       feedback: $('feedback'),
+      comboMilestone: $('combo-milestone'),
+      tutorialHint: $('tutorial-hint'),
       grid: $('grid'),
+      scanSweep: $('scan-sweep'),
+      scorePopLayer: $('score-pop-layer'),
+      feverWrap: $('fever-wrap'),
+      feverBar: $('fever-bar'),
+      feverTime: $('fever-time'),
+      achievementToast: $('achievement-toast'),
+      achievementToastText: $('achievement-toast-text'),
       startBtn: $('btn-start'),
+      dailyBtn: $('btn-daily'),
       retryBtn: $('btn-retry'),
       titleBtn: $('btn-title'),
       r: {
         mode: $('r-mode'), play: $('r-play'),
         score: $('r-score'), newBest: $('r-newbest'), bestGap: $('r-bestgap'),
+        rankRow: $('r-rank-row'), rank: $('r-rank'), rankUp: $('r-rankup'), nextRank: $('r-nextrank'),
         best: $('r-best'), level: $('r-level'), maxCombo: $('r-maxcombo'),
         correct: $('r-correct'), miss: $('r-miss'), acc: $('r-acc'),
         recent: $('r-recent'), recentMode: $('r-recent-mode'), delta: $('r-delta'),
+        recentBlock: $('recent-block'),
+        dailyBestRow: $('daily-best-row'), dailyBest: $('r-daily-best'),
+        missions: $('r-missions'),
       },
       version: $('version'),
     };
@@ -499,6 +855,8 @@
     MODES.forEach((m) => { statsByMode[m] = createAggregate(); });
     let playHistory = [];
 
+    let unlockedAchievements = storage.getAchievements();
+
     let selectedMode = CONFIG.DEFAULT_MODE;
     let state = createInitialState();
     let resultShownAt = 0;
@@ -507,11 +865,14 @@
 
     function createInitialState() {
       return {
-        phase: 'title',   // title | countdown | playing | ended | result
+        phase: 'title',   // title | countdown | special-intro | playing | ended | result
         mode: selectedMode,
         duration: getDuration(selectedMode),
         playNumber: 0,
         isRetry: false,
+        dailyMode: false,
+        dailyDateStr: null,
+        rng: defaultRng,
         score: 0,
         combo: 0,
         maxCombo: 0,
@@ -524,6 +885,21 @@
         lastWarnSec: null,
         question: null,
         locked: false,
+        // Ver.3
+        feverGauge: 0,
+        feverActive: false,
+        feverEndTime: 0,
+        feverCount: 0,
+        specialActive: false,
+        specialType: null,
+        specialEndTime: 0,
+        specialAttempts: 0,
+        specialSuccesses: 0,
+        questionsCompleted: 0,
+        nextSpecialAt: 0,
+        memoryHidden: false,
+        tutorialActive: false,
+        tutorialHintIndex: -1,
       };
     }
 
@@ -577,7 +953,16 @@
         b.setAttribute('aria-pressed', String(Number(b.dataset.mode) === selectedMode));
       });
       el.titleBest.textContent = fmt(bestScores[selectedMode]);
+      const rank = getRank(bestScores[CONFIG.RANK_MODE] || 0);
+      setRankBadge(el.titleRank, rank);
+      const todayStr = getTodayDateStr();
+      el.titleDailyBest.textContent = 'BEST ' + fmt(storage.getDailyBest(todayStr));
       renderSoundButton();
+    }
+
+    function setRankBadge(node, rank) {
+      node.textContent = rank;
+      node.className = 'rank-badge rank-' + rank.toLowerCase();
     }
 
     function renderSoundButton() {
@@ -595,371 +980,21 @@
       el.multi.classList.toggle('boost', rate > 1);
     }
 
+    function renderFever() {
+      const pct = state.feverActive ? 100 : state.feverGauge;
+      el.feverBar.style.width = pct + '%';
+      el.feverWrap.classList.toggle('active', state.feverActive);
+      if (state.feverActive) {
+        const left = Math.max(0, Math.ceil((state.feverEndTime - performance.now()) / 1000));
+        el.feverTime.textContent = left + 's';
+      } else {
+        el.feverTime.textContent = '';
+      }
+    }
+
     function renderTime(ms) {
       const sec = Math.max(0, Math.ceil(ms / 1000));
       el.time.textContent = sec;
       el.timeBox.classList.toggle('warn', sec <= CONFIG.TIME_WARN && sec > CONFIG.TIME_DANGER);
       el.timeBox.classList.toggle('danger', sec <= CONFIG.TIME_DANGER);
       return sec;
-    }
-
-    function renderQuestion() {
-      const q = state.question;
-      el.condition.innerHTML = q.text;
-      retrigger(el.condition, 'enter');
-      el.level.textContent = 'LV ' + state.level;
-      el.remain.textContent = q.remaining;
-      q.cells.forEach((cell, i) => {
-        const btn = cellButtons[i];
-        btn.className = 'cell';
-        btn.textContent = cell.value;
-        btn.setAttribute('aria-label', String(cell.value));
-      });
-    }
-
-    function showFeedback(text, type) {
-      el.feedback.textContent = text;
-      el.feedback.className = 'feedback ' + type;
-      retrigger(el.feedback, 'show');
-    }
-
-    /* ---------- タイマー ---------- */
-    function startTimer() {
-      if (timers.tickId !== null) clearInterval(timers.tickId);   // 二重起動防止
-      state.endTime = performance.now() + state.duration * 1000;
-      timers.tickId = setInterval(tick, CONFIG.TICK_INTERVAL);
-      tick();
-    }
-
-    function tick() {
-      if (state.phase !== 'playing') return;
-      const left = state.endTime - performance.now();
-      const sec = renderTime(left);
-      if (left <= 0) {
-        endGame();
-        return;
-      }
-      // 残り5秒から1秒ごとに警告音（同じ秒で二度鳴らさない）
-      if (sec <= CONFIG.TIME_DANGER && sec !== state.lastWarnSec) {
-        state.lastWarnSec = sec;
-        sound.warn();
-      }
-    }
-
-    /* ---------- ゲーム進行 ---------- */
-    function startGame(isRetry) {
-      sound.unlock();   // iOS: ユーザー操作内で AudioContext を初期化
-      clearAllTimers();
-
-      recordStart(sessionStats, isRetry);
-      recordStart(statsByMode[selectedMode], isRetry);
-
-      state = createInitialState();
-      state.phase = 'countdown';
-      state.isRetry = isRetry;
-      state.playNumber = sessionStats.totalPlays;
-
-      hide(el.titleScreen);
-      hide(el.result);
-      hide(el.timeup);
-      show(el.gameScreen);
-
-      state.question = generateQuestion(state.level, null);
-      renderQuestion();
-      renderHud();
-      renderTime(state.duration * 1000);
-      el.feedback.className = 'feedback';
-      el.grid.classList.add('veiled');
-
-      const seconds = isRetry ? CONFIG.RETRY_COUNTDOWN_DURATION : CONFIG.COUNTDOWN_DURATION;
-      runCountdown(getCountdownSteps(seconds), 0);
-    }
-
-    function runCountdown(steps, index) {
-      if (!steps.length) {
-        beginPlay();
-        return;
-      }
-      const isLast = index === steps.length - 1;
-      show(el.countdown);
-      el.countdownNum.textContent = steps[index];
-      el.countdownNum.classList.toggle('go', isLast);
-      retrigger(el.countdownNum, 'beat');
-      sound.countdown(isLast);
-
-      if (isLast) later(beginPlay, CONFIG.COUNTDOWN_GO_MS);
-      else later(() => runCountdown(steps, index + 1), CONFIG.COUNTDOWN_STEP_MS);
-    }
-
-    function beginPlay() {
-      if (state.phase !== 'countdown') return;
-      hide(el.countdown);
-      el.grid.classList.remove('veiled');
-      state.phase = 'playing';
-      startTimer();
-    }
-
-    function nextQuestion() {
-      const newLevel = getLevel(state.correct);
-      const leveledUp = newLevel > state.level;
-      state.level = newLevel;
-      state.maxLevel = Math.max(state.maxLevel, newLevel);
-      state.question = generateQuestion(state.level, state.question.text);
-      renderQuestion();
-      if (leveledUp) {
-        retrigger(el.level, 'up');
-        showFeedback('LEVEL UP!', 'level');
-      }
-    }
-
-    function handleTap(index) {
-      if (state.phase !== 'playing' || state.locked) return;
-      const q = state.question;
-      const cell = q && q.cells[index];
-      if (!cell || cell.done) return;   // 正解済みは無反応
-      const btn = cellButtons[index];
-
-      if (cell.correct) {
-        // 状態更新 → 見た目 → 音 を同じ処理内で即時に行う
-        cell.done = true;
-        q.remaining -= 1;
-        state.correct += 1;
-        const prevCombo = state.combo;
-        state.combo += 1;
-        state.maxCombo = Math.max(state.maxCombo, state.combo);
-
-        const pts = calcCorrectPoints(state.combo);
-        const bonus = calcComboBonus(prevCombo, state.combo);
-        state.score += pts + bonus;
-
-        btn.classList.add('done');
-        retrigger(btn, 'pop');
-        el.remain.textContent = q.remaining;
-        renderHud();
-
-        if (bonus > 0) {
-          state.bonusCount += 1;
-          showFeedback(`COMBO BONUS +${bonus}`, 'bonus');
-          retrigger(el.comboBox, 'milestone');
-          retrigger(el.scoreBox, 'milestone');
-          sound.milestone();
-        } else {
-          showFeedback('+' + pts, 'good');
-          sound.correct(state.combo);
-        }
-
-        if (q.remaining === 0) {
-          state.locked = true;
-          later(() => {
-            state.locked = false;
-            if (state.phase === 'playing') nextQuestion();
-          }, CONFIG.QUESTION_TRANSITION_DELAY);
-        }
-      } else {
-        state.miss += 1;
-        state.combo = 0;
-        state.score = Math.max(0, state.score - CONFIG.MISS_SCORE);
-        state.endTime -= CONFIG.MISS_TIME_PENALTY * 1000;
-
-        retrigger(btn, 'miss');
-        retrigger(el.timeBox, 'penalty');
-        showFeedback(`-${CONFIG.MISS_SCORE}  TIME -${CONFIG.MISS_TIME_PENALTY}`, 'bad');
-        sound.miss();
-        vibrate(CONFIG.VIBRATE_MS);
-        renderHud();
-        tick();
-      }
-    }
-
-    function endGame() {
-      if (state.phase !== 'playing') return;
-      state.phase = 'ended';
-      clearAllTimers();
-      renderTime(0);
-      sound.end();
-
-      const prevBest = bestScores[state.mode];
-      const isNewBest = state.score > prevBest;
-      if (isNewBest) {
-        bestScores[state.mode] = state.score;
-        storage.setBest(state.mode, state.score);
-      }
-
-      const record = {
-        mode: state.mode,
-        score: state.score,
-        correct: state.correct,
-        miss: state.miss,
-        accuracy: calcAccuracyValue(state.correct, state.miss),
-        maxCombo: state.maxCombo,
-        maxLevel: state.maxLevel,
-        playedAt: new Date().toISOString(),
-        playNumber: state.playNumber,
-        isRetry: state.isRetry,
-      };
-      playHistory = addHistory(playHistory, record, CONFIG.HISTORY_LIMIT);
-      recordResult(sessionStats, record);
-      recordResult(statsByMode[state.mode], record);
-
-      show(el.timeup);
-      later(() => showResult(isNewBest, prevBest), CONFIG.TIMEUP_DISPLAY_MS);
-    }
-
-    function showResult(isNewBest, prevBest) {
-      state.phase = 'result';
-      hide(el.timeup);
-
-      el.r.mode.textContent = state.mode + ' SEC';
-      el.r.play.textContent = state.playNumber;
-      el.r.score.textContent = fmt(state.score);
-      el.r.best.textContent = fmt(bestScores[state.mode]);
-      el.r.level.textContent = state.maxLevel;
-      el.r.maxCombo.textContent = state.maxCombo;
-      el.r.correct.textContent = state.correct;
-      el.r.miss.textContent = state.miss;
-      el.r.acc.textContent = formatAccuracy(state.correct, state.miss);
-
-      // NEW BEST の時は「BESTまで」を出さない
-      el.r.newBest.hidden = !isNewBest;
-      el.r.bestGap.hidden = isNewBest;
-      if (isNewBest) {
-        retrigger(el.r.newBest, 'pop-in');
-        el.r.bestGap.textContent = '';
-      } else if (prevBest === 0) {
-        el.r.bestGap.textContent = '';
-      } else if (state.score === prevBest) {
-        el.r.bestGap.textContent = 'BESTタイ！';
-      } else {
-        el.r.bestGap.textContent = `BESTまで あと ${fmt(prevBest - state.score)}`;
-      }
-
-      renderRecent();
-      show(el.result);
-      resultShownAt = performance.now();
-      if (isNewBest) later(() => sound.newBest(), 120);
-    }
-
-    // 直近スコア（同じモードのみ。30秒と60秒は比較できないため）
-    const recentBars = [];
-    function renderRecent() {
-      if (!recentBars.length) {
-        for (let i = 0; i < CONFIG.RECENT_SCORE_COUNT; i++) {
-          const col = document.createElement('div');
-          col.className = 'recent-col';
-          col.innerHTML = '<div class="recent-track"><div class="recent-bar"></div></div><span class="recent-val"></span>';
-          el.r.recent.appendChild(col);
-          recentBars.push({
-            col, bar: col.querySelector('.recent-bar'), val: col.querySelector('.recent-val'),
-          });
-        }
-      }
-      const scores = getRecentScores(playHistory, state.mode, CONFIG.RECENT_SCORE_COUNT);
-      const ratios = calcBarRatios(scores);
-      const offset = CONFIG.RECENT_SCORE_COUNT - scores.length;   // 右詰めで表示
-      recentBars.forEach((b, i) => {
-        const k = i - offset;
-        const has = k >= 0;
-        b.col.classList.toggle('empty', !has);
-        b.col.classList.toggle('latest', has && k === scores.length - 1);
-        b.bar.style.height = has ? Math.max(4, ratios[k] * 100) + '%' : '0';
-        b.val.textContent = has ? fmt(scores[k]) : '';
-      });
-      el.r.recentMode.textContent = state.mode + ' SEC';
-      const prev = scores.length >= 2 ? scores[scores.length - 2] : null;
-      const delta = formatDelta(state.score, prev);
-      el.r.delta.textContent = delta;
-      el.r.delta.className = 'delta' + (delta.startsWith('↑') ? ' up' : delta.startsWith('↓') ? ' down' : '');
-    }
-
-    function goTitle() {
-      clearAllTimers();
-      state = createInitialState();
-      hide(el.result);
-      hide(el.timeup);
-      hide(el.countdown);
-      hide(el.gameScreen);
-      renderTitle();
-      show(el.titleScreen);
-    }
-
-    // 結果表示直後の連打で意図せず再開しないようにする
-    const resultReady = () =>
-      state.phase === 'result' && performance.now() - resultShownAt >= CONFIG.RESULT_INPUT_GUARD_MS;
-
-    /* ---------- 初期化 ---------- */
-    // 100dvh 非対応ブラウザ向け：実際の表示高さをCSS変数へ
-    function syncAppHeight() {
-      document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
-    }
-
-    function init() {
-      buildGrid();
-      renderTitle();
-      if (el.version) el.version.textContent = 'Ver ' + CONFIG.VERSION;
-      syncAppHeight();
-      window.addEventListener('resize', syncAppHeight);
-      window.addEventListener('orientationchange', syncAppHeight);
-
-      el.modeButtons.forEach((b) => {
-        b.addEventListener('click', () => {
-          if (state.phase !== 'title') return;
-          selectedMode = Number(b.dataset.mode);
-          renderTitle();
-        });
-      });
-
-      el.soundBtn.addEventListener('click', () => {
-        const on = !sound.isEnabled();
-        sound.setEnabled(on);
-        storage.setSoundEnabled(on);
-        renderSoundButton();
-        if (on) sound.countdown(false);   // ONにした合図
-      });
-
-      el.startBtn.addEventListener('click', () => {
-        if (state.phase === 'title') startGame(false);
-      });
-      el.retryBtn.addEventListener('click', () => {
-        if (resultReady()) startGame(true);   // モードは selectedMode のまま維持
-      });
-      el.titleBtn.addEventListener('click', () => {
-        if (resultReady()) goTitle();
-      });
-
-      document.addEventListener('gesturestart', (e) => e.preventDefault());
-    }
-
-    // 検証・将来のAnalytics用（読み取り専用のコピーを返す）
-    const inspect = {
-      getSessionStats: () => {
-        const byMode = {};
-        MODES.forEach((m) => { byMode[m] = summarizeAggregate(statsByMode[m]); });
-        return { ...summarizeAggregate(sessionStats), byMode, version: CONFIG.VERSION };
-      },
-      getPlayHistory: () => playHistory.map((h) => ({ ...h })),
-    };
-
-    return { init, inspect };
-  }
-
-  /* ---------------------------------------------------------
-     起動 / テスト用エクスポート
-     --------------------------------------------------------- */
-  const api = {
-    CONFIG, generateQuestion, getLevel, getMultiplier, calcCorrectPoints,
-    calcComboBonus, calcAccuracyValue, formatAccuracy, getCountdownSteps, addHistory, getDuration,
-    getRecentScores, calcBarRatios, formatDelta,
-    createAggregate, recordStart, recordResult, summarizeAggregate,
-  };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-
-  if (typeof document !== 'undefined') {
-    const boot = () => {
-      const game = createGame();
-      game.init();
-      window.NumberHunt = game.inspect;
-    };
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-    else boot();
-  }
-})();

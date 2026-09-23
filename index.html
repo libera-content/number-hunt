@@ -5,15 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#14172b">
   <meta name="format-detection" content="telephone=no">
-  <meta name="description" content="条件に合う数字を全部タップ！30秒・60秒の数字判断ゲーム">
+  <meta name="description" content="条件に合う数字を全部タップ！FEVER・SPECIAL・DAILY搭載の数字判断ゲーム">
   <meta property="og:type" content="website">
   <meta property="og:title" content="NUMBER HUNT | 数字ハント">
-  <meta property="og:description" content="条件に合う数字を全部タップ！30秒・60秒の数字判断ゲーム">
+  <meta property="og:description" content="条件に合う数字を全部タップ！FEVER・SPECIAL・DAILY搭載の数字判断ゲーム">
   <title>NUMBER HUNT | 数字ハント</title>
-  <link rel="stylesheet" href="./style.css?v=2.1">
+  <link rel="stylesheet" href="./style.css?v=3.0">
 </head>
 <body>
   <div id="app">
+
+    <!-- ===== 背景演出（装飾のみ・視認性を妨げない不透明度） ===== -->
+    <div class="bg-fx" aria-hidden="true">
+      <div class="bg-fx-grid"></div>
+      <div class="bg-fx-radar"></div>
+      <div class="bg-fx-particles"></div>
+    </div>
 
     <!-- ===== タイトル画面 ===== -->
     <section id="screen-title" class="screen screen-title">
@@ -35,11 +42,15 @@
           <button class="mode-btn" type="button" data-mode="60" aria-pressed="false"><b>60</b> SEC</button>
         </div>
         <p class="title-best">BEST <span id="title-best">0</span></p>
+        <p class="title-rank">BESTランク <span id="title-rank" class="rank-badge rank-bronze">BRONZE</span></p>
 
         <button id="btn-start" class="btn-primary" type="button">START</button>
+        <button id="btn-daily" class="btn-daily" type="button">
+          DAILY CHALLENGE <small id="title-daily-best">BEST 0</small>
+        </button>
         <p class="title-rule">正解 +100 ／ ミスは −50点・−1秒</p>
       </div>
-      <p id="version" class="version">Ver 2.1</p>
+      <p id="version" class="version">Ver 3.0</p>
     </section>
 
     <!-- ===== ゲーム画面 ===== -->
@@ -60,14 +71,27 @@
         </div>
       </header>
 
+      <div id="fever-wrap" class="fever-wrap">
+        <span class="fever-tag">FEVER</span>
+        <div class="fever-track"><div id="fever-bar" class="fever-bar"></div></div>
+        <span id="fever-time" class="fever-time"></span>
+      </div>
+
       <div class="question">
         <span id="level-badge" class="level">LV 1</span>
+        <span id="special-badge" class="special-badge" hidden>SPECIAL: <b id="special-badge-text"></b></span>
         <p id="condition-text" class="condition"></p>
         <p class="remain">あと <span id="remain">0</span> 個</p>
         <div id="feedback" class="feedback" aria-live="polite"></div>
+        <div id="combo-milestone" class="combo-milestone" aria-hidden="true"></div>
+        <div id="tutorial-hint" class="tutorial-hint" hidden>条件に合う数字を全部タップ</div>
       </div>
 
-      <div id="grid" class="grid" role="group" aria-label="数字"></div>
+      <div class="grid-wrap">
+        <div id="grid" class="grid" role="group" aria-label="数字"></div>
+        <div id="scan-sweep" class="scan-sweep" aria-hidden="true"></div>
+        <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+      </div>
     </section>
 
     <!-- ===== カウントダウン ===== -->
@@ -75,10 +99,24 @@
       <p id="countdown-num" class="countdown-num">3</p>
     </section>
 
+    <!-- ===== SPECIAL CHALLENGE 開始演出 ===== -->
+    <section id="overlay-special" class="overlay overlay-special" hidden>
+      <div class="special-intro">
+        <p class="special-intro-title">SPECIAL CHALLENGE</p>
+        <p id="special-intro-type" class="special-intro-type">ONE TARGET</p>
+      </div>
+    </section>
+
     <!-- ===== TIME UP ===== -->
     <section id="overlay-timeup" class="overlay" hidden>
       <p class="timeup">TIME UP!</p>
     </section>
+
+    <!-- ===== 実績・ミッション トースト ===== -->
+    <div id="achievement-toast" class="achievement-toast" hidden>
+      <span class="achievement-toast-label">ACHIEVEMENT</span>
+      <span id="achievement-toast-text" class="achievement-toast-text"></span>
+    </div>
 
     <!-- ===== 結果画面 ===== -->
     <section id="overlay-result" class="overlay overlay-result" hidden>
@@ -88,7 +126,7 @@
           <h2 class="result-title">RESULT</h2>
           <span class="chip">PLAY <b id="r-play">1</b></span>
         </div>
-        <!-- 1. SCORE / 2. NEW BEST or BESTまで -->
+        <!-- 1. SCORE -->
         <div class="result-score">
           <span class="result-label">SCORE</span>
           <span id="r-score" class="result-big">0</span>
@@ -98,19 +136,31 @@
           </div>
         </div>
 
-        <!-- 3. もう一度（最重要） -->
+        <!-- 2. RANK / 3. NEW BEST・RANK UP -->
+        <div id="r-rank-row" class="result-rank-row">
+          <span id="r-rank" class="rank-badge rank-bronze">BRONZE</span>
+          <span id="r-rankup" class="rankup" hidden>RANK UP!</span>
+        </div>
+
+        <!-- 4. もう一度（最重要） -->
         <button id="btn-retry" class="btn-primary btn-retry" type="button">もう一度</button>
 
-        <!-- 4. 直近スコア推移 -->
-        <div class="recent">
+        <!-- 5. NEXT RANK -->
+        <p id="r-nextrank" class="nextrank"></p>
+
+        <!-- 6. 直近スコア推移 -->
+        <div id="recent-block" class="recent">
           <div class="recent-head">
             <span>RECENT SCORE <small id="r-recent-mode">30 SEC</small></span>
             <span id="r-delta" class="delta"></span>
           </div>
           <div id="r-recent" class="recent-chart" aria-label="直近スコア"></div>
         </div>
+        <div id="daily-best-row" class="daily-best-row" hidden>
+          <span>TODAY'S BEST</span><b id="r-daily-best">0</b>
+        </div>
 
-        <!-- 5. 詳細 -->
+        <!-- 7. 詳細 -->
         <dl class="result-stats">
           <div><dt>BEST</dt><dd id="r-best">0</dd></div>
           <div><dt>MAX LEVEL</dt><dd id="r-level">1</dd></div>
@@ -120,7 +170,13 @@
           <div><dt>ACCURACY</dt><dd id="r-acc">0%</dd></div>
         </dl>
 
-        <!-- 6. タイトルへ -->
+        <!-- 8. MISSION -->
+        <details class="mission-block">
+          <summary>MISSION</summary>
+          <ul id="r-missions" class="mission-list"></ul>
+        </details>
+
+        <!-- 9. タイトルへ -->
         <button id="btn-title" class="btn-text" type="button">タイトルへ</button>
       </div>
     </section>
@@ -129,6 +185,6 @@
 
   <div class="rotate-notice">縦画面でプレイしてください</div>
 
-  <script src="./script.js?v=2.1"></script>
+  <script src="./script.js?v=3.0"></script>
 </body>
 </html>
