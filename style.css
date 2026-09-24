@@ -284,9 +284,9 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 /* =========================================================
    ゲーム画面
    ========================================================= */
-.screen-game { gap: 10px; }
+.screen-game { gap: 6px; }
 
-/* ---------- HUD ---------- */
+/* ---------- HUD（Ver.3.1: 盤面を優先し縦幅を圧縮） ---------- */
 .hud {
   display: grid;
   grid-template-columns: 1fr 1.1fr 1fr;
@@ -298,26 +298,27 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 6px 4px 5px;
+  padding: 4px 4px 3px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   transition: border-color 200ms, background-color 200ms;
 }
 .hud-label {
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--muted);
+  line-height: 1.1;
 }
 .hud-value {
   font-family: var(--num-font);
-  font-size: 24px;
+  font-size: 19px;
   font-weight: 800;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
-.hud-time .hud-value { font-size: 28px; }
+.hud-time .hud-value { font-size: 25px; } /* TIMEは視認性維持のため縮小幅を抑える */
 .hud-multi {
   position: absolute;
   right: 7px;
@@ -354,17 +355,17 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   100% { background: var(--bg-2); }
 }
 
-/* ---------- 条件エリア ---------- */
+/* ---------- 条件エリア（Ver.3.1: 盤面を優先し高さを短縮） ---------- */
 .question {
   position: relative;
   flex: 1 1 auto;
-  min-height: 118px;
+  min-height: 88px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 18px 4px 26px;
+  padding: 10px 4px 14px;
 }
 .level {
   position: absolute;
@@ -385,9 +386,9 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 }
 
 .condition {
-  font-size: clamp(26px, 8.4vw, 38px);
+  font-size: clamp(23px, 7.2vw, 33px);
   font-weight: 800;
-  line-height: 1.3;
+  line-height: 1.25;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -403,14 +404,14 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 }
 
 .remain {
-  margin-top: 6px;
-  font-size: 15px;
+  margin-top: 3px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
 }
 .remain span {
   font-family: var(--num-font);
-  font-size: 20px;
+  font-size: 17px;
   color: var(--text);
 }
 
@@ -445,19 +446,18 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
 /* ---------- 数字グリッド（下寄せで片手操作しやすく） ---------- */
 .grid {
-  flex: 0 0 auto;
-  align-self: center;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
   gap: var(--gap);
-  width: min(100%, calc(100vh - 320px));
-  width: min(100%, calc(var(--app-height, 100vh) - 320px));
+  width: min(100%, calc(100vh - 276px));
+  width: min(100%, calc(var(--app-height, 100vh) - 276px));
   aspect-ratio: 1 / 1;
+  margin: 0 auto;       /* grid-wrapが非flexのためalign-selfの代わりに中央寄せ */
   touch-action: none;   /* 盤面上のスクロール・ズームを抑止（pointerdownは通常どおり発火） */
 }
 @supports (height: 100dvh) {
-  .grid { width: min(100%, calc(100dvh - 320px)); }
+  .grid { width: min(100%, calc(100dvh - 276px)); }
 }
 
 .cell {
@@ -785,25 +785,25 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
    Ver.3 追加スタイル
    ========================================================= */
 
-/* ---------- FEVER ゲージ ---------- */
+/* ---------- FEVER ゲージ（Ver.3.1: 盤面を優先し薄型化） ---------- */
 .fever-wrap {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 2px;
+  gap: 6px;
+  padding: 0 2px;
 }
 .fever-tag {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--muted);
-  width: 34px;
+  width: 28px;
   flex: 0 0 auto;
 }
 .fever-track {
   flex: 1 1 auto;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -817,11 +817,11 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   transition: width 150ms ease-out;
 }
 .fever-time {
-  width: 28px;
+  width: 24px;
   flex: 0 0 auto;
   text-align: right;
   font-family: var(--num-font);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   color: var(--accent);
 }
@@ -945,15 +945,17 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .tutorial-hint {
   position: absolute;
   left: 50%;
-  bottom: -22px;
+  bottom: -12px;
   transform: translateX(-50%);
+  z-index: 2;             /* グリッドより手前に表示（重なっても隠れない） */
+  pointer-events: none;   /* 重なってもタップを妨げない */
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--muted);
   background: var(--bg-2);
   border: 1px solid var(--line);
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: 999px;
 }
 .cell.hint { animation: hint-blink 1.1s ease-in-out infinite; }
@@ -966,7 +968,7 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .grid-wrap {
   position: relative;
   flex: 0 0 auto;
-  align-self: center;
+  width: 100%;
 }
 .scan-sweep {
   position: absolute;
@@ -1024,39 +1026,38 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   --bonus-marker: none;
 }
 
-/* ---------- 実績トースト ---------- */
+/* ---------- 実績トースト（Ver.3.1: 小型化・条件文/TIMEを覆わない位置） ---------- */
 .achievement-toast {
   position: absolute;
   left: 50%;
-  top: calc(env(safe-area-inset-top, 0px) + 8px);
-  transform: translate(-50%, -140%);
+  top: calc(env(safe-area-inset-top, 0px) + 46px); /* HUD行の下＝TIME/条件文と重ならない */
+  transform: translate(-50%, -130%);
   z-index: 20;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 16px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
   background: var(--bg-2);
   border: 1px solid var(--accent);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   pointer-events: none;
   white-space: nowrap;
 }
 .achievement-toast-label {
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 900;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   color: var(--accent);
 }
 .achievement-toast-text {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--text);
 }
-.achievement-toast.show { animation: toast-in 0.4s cubic-bezier(.2, 1.6, .4, 1) forwards; }
+.achievement-toast.show { animation: toast-in 0.3s cubic-bezier(.2, 1.6, .4, 1) forwards; }
 @keyframes toast-in {
-  0%   { transform: translate(-50%, -140%); opacity: 0; }
+  0%   { transform: translate(-50%, -130%); opacity: 0; }
   100% { transform: translate(-50%, 0); opacity: 1; }
 }
 

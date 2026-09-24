@@ -1079,7 +1079,7 @@
       el.achievementToastText.textContent = `${def.label} — ${def.desc}`;
       show(el.achievementToast);
       retrigger(el.achievementToast, 'show');
-      later(() => hide(el.achievementToast), 2200);
+      later(() => hide(el.achievementToast), 1500); // 1.2〜1.8秒で操作の邪魔にならないよう短縮
     }
 
     /* ---------- タイマー ---------- */
@@ -1565,7 +1565,7 @@
       function drainToasts() {
         if (!toastQueue.length) return;
         showAchievementToast(toastQueue.shift());
-        later(drainToasts, 2400);
+        later(drainToasts, 1700);
       }
       later(drainToasts, 500);
     }
