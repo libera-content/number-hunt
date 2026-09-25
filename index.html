@@ -10,7 +10,7 @@
   <meta property="og:title" content="NUMBER HUNT | 数字ハント">
   <meta property="og:description" content="条件に合う数字を全部タップ！FEVER・SPECIAL・DAILY搭載の数字判断ゲーム">
   <title>NUMBER HUNT | 数字ハント</title>
-  <link rel="stylesheet" href="./style.css?v=77fa641">
+  <link rel="stylesheet" href="./style.css?v=3.2">
 </head>
 <body>
   <div id="app">
@@ -41,16 +41,26 @@
           <button class="mode-btn" type="button" data-mode="30" aria-pressed="true"><b>30</b> SEC</button>
           <button class="mode-btn" type="button" data-mode="60" aria-pressed="false"><b>60</b> SEC</button>
         </div>
-        <p class="title-best">BEST <span id="title-best">0</span></p>
-        <p class="title-rank">BESTランク <span id="title-rank" class="rank-badge rank-bronze">BRONZE</span></p>
+        <div class="title-status">
+          <p class="title-best">BEST <span id="title-best">0</span></p>
+          <p class="title-rank">BESTランク <span id="title-rank" class="rank-badge rank-bronze">BRONZE</span></p>
+          <button id="btn-today-mission" class="today-mission-chip" type="button">
+            TODAY MISSION <span id="today-mission-count">0/3</span>
+          </button>
+        </div>
 
-        <button id="btn-start" class="btn-primary" type="button">START</button>
-        <button id="btn-daily" class="btn-daily" type="button">
-          DAILY CHALLENGE <small id="title-daily-best">BEST 0</small>
+        <button id="btn-start" class="btn-primary" type="button">
+          START
+          <small class="btn-caption">ランダム問題・30/60秒・RANK対象</small>
         </button>
+        <button id="btn-daily" class="btn-daily" type="button">
+          <span class="btn-daily-main">DAILY CHALLENGE <b id="title-daily-best">BEST 0</b></span>
+          <small class="btn-caption">今日の共通問題・30秒固定・TODAY BEST</small>
+        </button>
+        <button id="btn-mode-diff" class="mode-diff-link" type="button">？ NORMAL / DAILY の違い</button>
         <p class="title-rule">正解 +100 ／ ミスは −50点・−1秒</p>
       </div>
-      <p id="version" class="version">Ver 3.0</p>
+      <p id="version" class="version">Ver 3.2</p>
     </section>
 
     <!-- ===== ゲーム画面 ===== -->
@@ -78,7 +88,10 @@
       </div>
 
       <div class="question">
-        <span id="level-badge" class="level">LV 1</span>
+        <div class="top-badges">
+          <span id="level-badge" class="level">LV 1</span>
+          <span id="daily-badge" class="daily-badge" hidden>DAILY</span>
+        </div>
         <span id="special-badge" class="special-badge" hidden>SPECIAL: <b id="special-badge-text"></b></span>
         <p id="condition-text" class="condition"></p>
         <p class="remain">あと <span id="remain">0</span> 個</p>
@@ -91,6 +104,14 @@
         <div id="grid" class="grid" role="group" aria-label="数字"></div>
         <div id="scan-sweep" class="scan-sweep" aria-hidden="true"></div>
         <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+      </div>
+    </section>
+
+    <!-- ===== DAILY開始バナー ===== -->
+    <section id="overlay-daily-intro" class="overlay overlay-daily-intro" hidden>
+      <div class="daily-intro">
+        <p class="daily-intro-title">DAILY CHALLENGE</p>
+        <p class="daily-intro-sub">TODAY'S SEED</p>
       </div>
     </section>
 
@@ -117,6 +138,14 @@
       <span class="achievement-toast-label">ACHIEVEMENT</span>
       <span id="achievement-toast-text" class="achievement-toast-text"></span>
     </div>
+
+    <!-- ===== 汎用情報モーダル（TODAY MISSION詳細 / NORMAL・DAILYの違い） ===== -->
+    <section id="overlay-info" class="overlay overlay-info" hidden>
+      <div class="info-sheet">
+        <button id="info-close" class="info-close" type="button" aria-label="閉じる">×</button>
+        <div id="info-body" class="info-body"></div>
+      </div>
+    </section>
 
     <!-- ===== 結果画面 ===== -->
     <section id="overlay-result" class="overlay overlay-result" hidden>
@@ -170,9 +199,9 @@
           <div><dt>ACCURACY</dt><dd id="r-acc">0%</dd></div>
         </dl>
 
-        <!-- 8. MISSION -->
-        <details class="mission-block">
-          <summary>MISSION</summary>
+        <!-- 8. MISSION（今回のプレイ結果のみで判定） -->
+        <details id="mission-block" class="mission-block" open>
+          <summary>THIS PLAY MISSION</summary>
           <ul id="r-missions" class="mission-list"></ul>
         </details>
 
@@ -185,6 +214,6 @@
 
   <div class="rotate-notice">縦画面でプレイしてください</div>
 
-  <script src="./script.js?v=77fa641"></script>
+  <script src="./script.js?v=3.2"></script>
 </body>
 </html>

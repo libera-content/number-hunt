@@ -13,7 +13,7 @@
      設定（数値はすべてここで管理）
      --------------------------------------------------------- */
   const CONFIG = Object.freeze({
-    VERSION: '3.0',   // index.html の ?v= と揃える
+    VERSION: '3.2',   // index.html の ?v= と揃える
 
     // モード（キー＝モードID、値＝制限秒数）
     GAME_DURATIONS: Object.freeze({ 30: 30, 60: 60 }),
@@ -129,6 +129,7 @@
     RANK_MODE: 30,                 // ランクは30秒通常モードのみ対象
 
     DAILY_DURATION: 30,
+    DAILY_INTRO_MS: 500,           // DAILY開始バナーの表示時間（300〜600ms）
     TUTORIAL_ENABLED: true,
 
     MISSIONS: [
@@ -791,11 +792,20 @@
       countdownNum: $('countdown-num'),
       special: $('overlay-special'),
       specialIntroType: $('special-intro-type'),
+      dailyIntro: $('overlay-daily-intro'),
       timeup: $('overlay-timeup'),
       result: $('overlay-result'),
+      resultCard: document.querySelector('.result-card'),
       titleBest: $('title-best'),
       titleRank: $('title-rank'),
       titleDailyBest: $('title-daily-best'),
+      todayMissionChip: $('btn-today-mission'),
+      todayMissionCount: $('today-mission-count'),
+      modeDiffBtn: $('btn-mode-diff'),
+      info: $('overlay-info'),
+      infoBody: $('info-body'),
+      infoClose: $('info-close'),
+      dailyBadge: $('daily-badge'),
       modeButtons: Array.from(document.querySelectorAll('.mode-btn')),
       soundBtn: $('btn-sound'),
       soundLabel: $('sound-label'),
@@ -957,7 +967,18 @@
       setRankBadge(el.titleRank, rank);
       const todayStr = getTodayDateStr();
       el.titleDailyBest.textContent = 'BEST ' + fmt(storage.getDailyBest(todayStr));
+      renderTodayMission();
       renderSoundButton();
+    }
+
+    // TOP画面の TODAY MISSION 進捗（今日すでに達成したミッションの累積・結果画面の今回判定とは別）
+    function renderTodayMission() {
+      const todayMissionState = storage.loadMissionState(getTodayDateStr());
+      const clearedCount = CONFIG.MISSIONS.filter((m) => todayMissionState[m.id]).length;
+      const total = CONFIG.MISSIONS.length;
+      const complete = clearedCount >= total;
+      el.todayMissionCount.textContent = `${clearedCount}/${total}` + (complete ? ' ✓' : '');
+      el.todayMissionChip.classList.toggle('complete', complete);
     }
 
     function setRankBadge(node, rank) {
@@ -969,6 +990,57 @@
       const on = sound.isEnabled();
       el.soundBtn.setAttribute('aria-pressed', String(on));
       el.soundLabel.textContent = on ? 'ON' : 'OFF';
+    }
+
+    /* ---------- 汎用情報モーダル ---------- */
+    function openInfo(html) {
+      el.infoBody.innerHTML = html;
+      show(el.info);
+    }
+    function closeInfo() {
+      hide(el.info);
+    }
+
+    // TODAY MISSION詳細（今日一度でも達成済みなら✓。結果画面の「今回の達成」とは別）
+    function renderTodayMissionDetail() {
+      const todayMissionState = storage.loadMissionState(getTodayDateStr());
+      const items = CONFIG.MISSIONS.map((m) => {
+        const cleared = !!todayMissionState[m.id];
+        return `<li class="${cleared ? 'cleared' : ''}">${cleared ? '✓' : '・'} ${m.label}</li>`;
+      }).join('');
+      openInfo(`
+        <h3>TODAY MISSION</h3>
+        <p style="font-size:11px;color:var(--muted);margin:-4px 0 10px;">今日、一度でも達成したミッション（NORMAL・DAILY合算）</p>
+        <ul class="info-mission-list">${items}</ul>
+      `);
+    }
+
+    // NORMAL / DAILY の違い
+    function renderModeDiffInfo() {
+      openInfo(`
+        <h3>NORMAL / DAILY の違い</h3>
+        <div class="info-section normal">
+          <h4>NORMAL</h4>
+          <p>何度でもハイスコアに挑戦</p>
+          <ul>
+            <li>30秒 / 60秒</li>
+            <li>毎回ランダムな問題</li>
+            <li>30秒はRANK対象</li>
+            <li>RECENT SCOREに記録</li>
+          </ul>
+        </div>
+        <div class="info-section daily">
+          <h4>DAILY</h4>
+          <p>今日の同じ問題に挑戦</p>
+          <ul>
+            <li>30秒固定</li>
+            <li>その日は同じ問題系列</li>
+            <li>TODAY'S BESTを記録</li>
+            <li>通常RANKとは別</li>
+          </ul>
+        </div>
+        <p class="info-tagline"><b>NORMAL＝ハイスコア挑戦</b><br><b>DAILY＝今日の腕試し</b></p>
+      `);
     }
 
     /* ---------- 描画 ---------- */
@@ -1237,6 +1309,7 @@
       hide(el.result);
       hide(el.timeup);
       hide(el.special);
+      hide(el.dailyIntro);
       show(el.gameScreen);
 
       state.question = generateQuestion(state.level, null, state.rng);
@@ -1256,8 +1329,18 @@
       if (state.tutorialActive) show(el.tutorialHint);
       else hide(el.tutorialHint);
 
+      el.dailyBadge.hidden = !isDaily;
+
       const seconds = isRetry ? CONFIG.RETRY_COUNTDOWN_DURATION : CONFIG.COUNTDOWN_DURATION;
-      runCountdown(getCountdownSteps(seconds), 0);
+      if (isDaily) {
+        show(el.dailyIntro);
+        later(() => {
+          hide(el.dailyIntro);
+          runCountdown(getCountdownSteps(seconds), 0);
+        }, CONFIG.DAILY_INTRO_MS);
+      } else {
+        runCountdown(getCountdownSteps(seconds), 0);
+      }
     }
 
     function runCountdown(steps, index) {
@@ -1488,9 +1571,8 @@
 
       show(el.timeup);
       later(() => showResult(isNewBest, prevBest, {
-        rank, rankUp, dailyBest, missionResults: evaluateMissions(record).map((m) => ({
-          ...m, cleared: missionState[m.id] || m.cleared,
-        })), newlyUnlocked, newlyClearedMissions,
+        // THIS PLAY MISSION は今回の record のみで判定（今日の累積 missionState は使わない）
+        rank, rankUp, dailyBest, missionResults, newlyUnlocked, newlyClearedMissions,
       }), CONFIG.TIMEUP_DISPLAY_MS);
     }
 
@@ -1536,7 +1618,8 @@
         el.r.nextRank.hidden = true;
       }
 
-      // DAILY / 通常 の表示切り替え
+      // DAILY / 通常 の表示切り替え（表示項目に加え、優先順位＝並び順も変える）
+      el.resultCard.classList.toggle('daily-mode', state.dailyMode);
       if (state.dailyMode) {
         el.r.recentBlock.hidden = true;
         el.r.dailyBestRow.hidden = false;
@@ -1609,6 +1692,8 @@
       hide(el.timeup);
       hide(el.countdown);
       hide(el.special);
+      hide(el.dailyIntro);
+      hide(el.info);
       hide(el.gameScreen);
       el.gameScreen.classList.remove('fever-active', 'special-active');
       renderTitle();
@@ -1660,6 +1745,17 @@
       });
       el.titleBtn.addEventListener('click', () => {
         if (resultReady()) goTitle();
+      });
+
+      el.todayMissionChip.addEventListener('click', () => {
+        if (state.phase === 'title') renderTodayMissionDetail();
+      });
+      el.modeDiffBtn.addEventListener('click', () => {
+        if (state.phase === 'title') renderModeDiffInfo();
+      });
+      el.infoClose.addEventListener('click', closeInfo);
+      el.info.addEventListener('click', (e) => {
+        if (e.target === el.info) closeInfo();   // 背景タップで閉じる
       });
 
       document.addEventListener('gesturestart', (e) => e.preventDefault());

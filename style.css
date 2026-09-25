@@ -163,7 +163,7 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 14px;
+  gap: 8px;
 }
 
 .title-tiles {
@@ -210,14 +210,20 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   font-weight: 700;
   margin: 4px 0 10px;
 }
+/* BEST / RANK / TODAY MISSION をまとめた省スペースな塊 */
+.title-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
 .title-best {
   font-family: var(--num-font);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   color: var(--muted);
-  margin-bottom: 6px;
 }
-.title-best span { color: var(--text); font-size: 18px; }
+.title-best span { color: var(--text); font-size: 16px; }
 
 .version {
   position: absolute;
@@ -367,10 +373,15 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   text-align: center;
   padding: 10px 4px 14px;
 }
-.level {
+.top-badges {
   position: absolute;
   top: 0;
   left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.level {
   padding: 3px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -380,6 +391,16 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   color: var(--muted);
 }
 .level.up { animation: level-up 0.7s ease-out; }
+.daily-badge {
+  padding: 3px 9px;
+  border: 1px solid #b98fff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #cdb3ff;
+  background: rgba(185, 143, 255, 0.1);
+}
 @keyframes level-up {
   0%   { color: #241a00; background: var(--accent); border-color: var(--accent); transform: scale(1.15); }
   100% { transform: scale(1); }
@@ -594,7 +615,25 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   border: 1px solid var(--line);
   border-radius: 22px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
 }
+/* 通常モードの並び順（既定） */
+.result-card > .result-head    { order: 0; }
+.result-card > .result-score   { order: 1; }
+.result-card > #r-rank-row     { order: 2; }
+.result-card > #btn-retry      { order: 3; }
+.result-card > #r-nextrank     { order: 4; }
+.result-card > #recent-block   { order: 5; }
+.result-card > #daily-best-row { order: 6; }
+.result-card > .result-stats   { order: 7; }
+.result-card > #mission-block  { order: 8; }
+.result-card > #btn-title      { order: 9; }
+/* DAILYの並び順：SCORE → TODAY'S BEST → THIS PLAY MISSION → もう一度 → タイトルへ */
+.result-card.daily-mode > #daily-best-row { order: 2; }
+.result-card.daily-mode > #mission-block  { order: 3; }
+.result-card.daily-mode > #btn-retry      { order: 4; }
+.result-card.daily-mode > .result-stats   { order: 5; }
 .result-head {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -904,6 +943,29 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 /* MEMORYで一旦隠す「？」の見た目を少し落ち着かせる */
 .screen-game.special-active .grid.veiled .cell { color: transparent; }
 
+/* ---------- DAILY開始バナー（300〜600ms・短時間で消える） ---------- */
+.overlay-daily-intro { background: rgba(8, 14, 28, 0.86); }
+.daily-intro { text-align: center; animation: daily-pop 0.3s cubic-bezier(.2, 1.6, .4, 1); }
+.daily-intro-title {
+  font-family: var(--num-font);
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #cdb3ff;
+}
+.daily-intro-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+@keyframes daily-pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* ---------- BONUS TARGET（★） ---------- */
 .cell.bonus::before {
   content: "★";
@@ -1080,33 +1142,92 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .rank-master   { color: #ff8fd6; border-color: #c94a9a; background: rgba(255, 143, 214, 0.14); }
 
 .title-rank {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--muted);
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: -4px;
 }
+
+/* TODAY MISSION（TOPの進捗チップ・タップで詳細） */
+.today-mission-chip {
+  margin-top: 1px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.today-mission-chip span {
+  font-family: var(--num-font);
+  color: var(--text);
+  font-size: 11px;
+  margin-left: 3px;
+}
+.today-mission-chip.complete {
+  border-color: var(--good);
+  color: var(--good);
+}
+.today-mission-chip.complete span { color: var(--good); }
+
+.btn-primary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.btn-caption {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.btn-primary .btn-caption { color: #4a3600; opacity: 0.85; }
 
 .btn-daily {
   margin: 8px auto 0;
   width: min(100%, 320px);
-  height: 40px;
-  border-radius: 999px;
+  height: auto;
+  min-height: 40px;
+  padding: 7px 14px 8px;
+  border-radius: 20px;
   border: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.btn-daily-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.04em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 }
-.btn-daily small { font-size: 10px; color: var(--accent); font-weight: 800; }
+.btn-daily-main b { font-size: 10px; color: var(--accent); font-weight: 800; }
+.btn-daily .btn-caption { color: var(--muted); opacity: 0.8; }
 .btn-daily:active { transform: translateY(2px); }
+
+.mode-diff-link {
+  margin-top: 6px;
+  min-height: 26px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 2px;
+}
+.mode-diff-link:active { color: var(--text); }
 
 /* ---------- 結果画面：RANK / NEXT RANK / DAILY / MISSION ---------- */
 .result-rank-row {
@@ -1176,6 +1297,110 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 }
 .mission-item.cleared { color: var(--good); }
 
+/* ---------- 汎用情報モーダル（TODAY MISSION詳細 / NORMAL・DAILYの違い） ---------- */
+.overlay-info {
+  align-items: flex-end;
+  background: rgba(8, 10, 20, 0.72);
+}
+.info-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 500px;
+  max-height: 82vh;
+  max-height: 82dvh;
+  overflow-y: auto;
+  margin: 0 auto;
+  padding: 20px 18px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  text-align: left;
+  animation: sheet-up 0.22s ease-out;
+}
+@keyframes sheet-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.info-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.info-close:active { color: var(--text); }
+
+.info-body h3 {
+  font-family: var(--num-font);
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.info-body .info-section {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.info-body .info-section.normal { border-color: var(--accent); }
+.info-body .info-section.daily { border-color: #b98fff; }
+.info-body .info-section h4 {
+  font-family: var(--num-font);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  margin: 0 0 3px;
+}
+.info-body .info-section.normal h4 { color: var(--accent); }
+.info-body .info-section.daily h4 { color: #cdb3ff; }
+.info-body .info-section p {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.info-body .info-section ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.info-body .info-section li {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.info-body .info-section li::before { content: "・"; color: var(--muted); }
+.info-tagline {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.info-tagline b { color: var(--text); }
+
+.info-mission-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.info-mission-list li {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.info-mission-list li.cleared { color: var(--good); }
+
 /* ---------- 動きを減らす設定 ---------- */
 @media (prefers-reduced-motion: reduce) {
   .hud-time.danger .hud-value,
@@ -1193,5 +1418,7 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   .scan-sweep.sweep::after,
   .score-pop,
   .achievement-toast.show,
-  .rankup.pop-in { animation: none; }
+  .rankup.pop-in,
+  .daily-intro,
+  .info-sheet { animation: none; }
 }
